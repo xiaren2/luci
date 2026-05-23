@@ -88,8 +88,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "multi-arch-build"
-          name: "Multi-Arch Build"
+          tag_name: "luci-app-tcpdump"
+          name: "luci-app-tcpdump"
           draft: false
           prerelease: false
           files: packages-staging/${{ matrix.name }}/*

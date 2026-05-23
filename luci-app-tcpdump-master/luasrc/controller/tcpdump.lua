@@ -1,4 +1,4 @@
-```lua
+lua
 module("luci.controller.tcpdump", package.seeall)
 
 tcpdump_root_folder = "/tmp/tcpdump/"
@@ -596,4 +596,3 @@ function capture_remove()
 
 	update()
 end
-```

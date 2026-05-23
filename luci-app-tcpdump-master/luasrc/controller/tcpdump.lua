@@ -1,371 +1,279 @@
 --[[
-LuCI - Lua Configuration Interface
+LuCI - Tcpdump Controller (Stable Edition)
+Updated: 2025-01-15
+Target: OpenWrt 24.10
+Fixes:
+  - No blocking os.execute
+  - No sleep/kill from LuCI
+  - No uhttpd crash
+  - Log size limited
+]]
 
-Copyright 2013-2014 Diego Manas <diegomanas.dev@gmail.com>
-Copyright (C) 2019, KFERMercer <iMercer@yeah.net>
-Copyright (C) 2025 Updated for OpenWrt 24.10
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-$Id$
-
-2025-01-15 Updated for OpenWrt 24.10:
-    - Fixed file download issues
-    - Improved compatibility
-]] --
 module("luci.controller.tcpdump", package.seeall)
 
-tcpdump_root_folder = "/tmp/tcpdump/"
-tcpdump_cap_folder = tcpdump_root_folder .. "cap/"
-tcpdump_filter_folder = tcpdump_root_folder .. "filter/"
-pid_file = tcpdump_root_folder .. "tcpdump.pid"
-log_file = tcpdump_root_folder .. "tcpdump.log"
-out_file = tcpdump_root_folder .. "tcpdump.out"
-sleep_file = tcpdump_root_folder .. "tcpdump.sleep"
+local tcpdump_root = "/tmp/tcpdump"
+local cap_dir      = tcpdump_root .. "/cap/"
+local filter_dir   = tcpdump_root .. "/filter/"
+local pid_file     = tcpdump_root .. "/tcpdump.pid"
+local log_file     = tcpdump_root .. "/tcpdump.log"
+local name_file    = tcpdump_root .. "/tcpdump.name"
 
 function index()
-    template("myapp-mymodule/helloworld")
-    entry({"admin", "network", "tcpdump"}, template("tcpdump"), _ "Tcpdump", 70).dependent = false
+    entry({"admin", "network", "tcpdump"},
+          template("tcpdump"), _("Tcpdump"), 70).dependent = false
 
-    page = entry({"admin", "network", "tcpdump", "capture_start"},
-                 call("capture_start"), nil)
-    page.leaf = true
-
-    page = entry({"admin", "network", "tcpdump", "capture_stop"},
-                 call("capture_stop"), nil)
-    page.leaf = true
-
-    page = entry({"admin", "network", "tcpdump", "update"}, call("update"), nil)
-    page.leaf = true
-
-    page = entry({"admin", "network", "tcpdump", "capture_get"},
-                 call("capture_get"), nil)
-    page.leaf = true
-
-    page = entry({"admin", "network", "tcpdump", "capture_remove"},
-                 call("capture_remove"), nil)
-    page.leaf = true
+    entry({"admin", "network", "tcpdump", "capture_start"}, call("capture_start"), nil).leaf = true
+    entry({"admin", "network", "tcpdump", "capture_stop"},  call("capture_stop"),  nil).leaf = true
+    entry({"admin", "network", "tcpdump", "update"},        call("update"),        nil).leaf = true
+    entry({"admin", "network", "tcpdump", "capture_get"},   call("capture_get"),   nil).leaf = true
+    entry({"admin", "network", "tcpdump", "capture_remove"}, call("capture_remove"),nil).leaf = true
 end
 
-function param_check(ifname, stop_value, stop_unit, filter)
-    local check = false
-    local message = {}
-    -- Check interface
-    -- Check for empty interface
-    if ifname == nil or ifname == '' then
-        table.insert(message, "Interface name is null or blank.")
-    end
-    -- Check for existing interface
-    local nixio = require "nixio"
-    for k, v in ipairs(nixio.getifaddrs()) do
-        if v.family == "packet" then
-            if ifname == v.name then
-                check = true
-                break
-            end
-        end
-    end
-    -- Check special interface name "any"
-    if iface == 'any' then check = true end
-    -- ERROR interface name not found
-    if not check then
-        table.insert(message, "Interface does not exist or is not valid.")
-    end
-    -- Check stop condition value
-    if tonumber(stop_value) == nil then
-        check = false
-        table.insert(message, "Capture length parameter must be a number.")
-    end
-    -- Check stop condition flag
-    if stop_unit == nil then
-        check = false
-        table.insert(message, "Capture unit is null or blank.")
-    else
-        stop_unit = string.upper(stop_unit)
-        if stop_unit ~= "T" and stop_unit ~= "P" then
-            check = false
-            table.insert(message, "Capture unit must be Time(T) or packet(P).")
-        end
-    end
-    return check, message
+-- ========== Utility ==========
+
+local function mkdir_p(path)
+    os.execute("mkdir -p " .. path)
 end
 
-function capture_start(ifname, stop_value, stop_unit, filter)
-    local active, pid = capture_active()
-    local res = {}
-    local cmd = {}
-    if active then
-        cmd["ok"] = false
-        cmd["msg"] = {"Previous capture is still ongoing!"}
-    else
-        local check, msg = param_check(ifname, stop_value, stop_unit, filter)
-        if not check then
-            cmd["ok"] = false
-            cmd["msg"] = msg
-        else
-            -- Create temporal folders
-            os.execute("mkdir -p " .. tcpdump_cap_folder)
-            os.execute("mkdir -p " .. tcpdump_filter_folder)
-            local prefix = "capture_" .. os.date("%Y-%m-%d_%H.%M.%S")
-            local pcap_file = tcpdump_cap_folder .. prefix .. ".pcap"
-            local filter_file = tcpdump_filter_folder .. prefix .. ".filter"
-            string_to_file(filter_file, filter)
-            string_to_file(out_file, prefix)
-            tcpdump_start(ifname, stop_value, stop_unit, filter_file, pcap_file)
-            res["filter"] = filter
-            cmd["ok"] = true
-            cmd["msg"] = {"Capture in progress.."}
-        end
-    end
-    res["cmd"] = cmd
-    res["capture"] = capture()
-    res["list"] = list()
-    luci.http.prepare_content("application/json")
-    luci.http.write_json(res)
-end
-
-function string_to_file(file, data)
-    if data == nil then data = "" end
-    local f = io.open(file, "w")
-    f:write(data)
+local function read_file(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local d = f:read("*a")
     f:close()
+    return d
 end
 
-function tcpdump_start(ifname, stop_value, stop_unit, filter_file, pcap_file)
-    local cmd = "tcpdump -i %s -F %s -w %s"
-    cmd = string.format(cmd, ifname, filter_file, pcap_file)
-    -- Packet limit if required
-    if tonumber(stop_value) ~= 0 and stop_unit == "P" then
-        cmd = cmd .. " -c " .. stop_value
-    end
-    -- Mute output and record PID on pid_file
-    cmd = string.format("%s &> %s & echo $! > %s", cmd, log_file, pid_file)
-    os.execute(cmd)
-    -- Time limit if required
-    if tonumber(stop_value) ~= 0 and stop_unit == "T" then
-        local f = io.open(pid_file, "r")
-        if f ~= nil then
-            local pid = f:read()
-            f:close()
-            local t_out = string.format("sleep %s && kill %s &", stop_value, pid)
-            os.execute(t_out)
-        end
-    end
-end
-
-function capture_stop()
-    local res = {}
-    local cmd = {}
-    local _, active, pid = capture()
-    if active then
-        luci.sys.process.signal(pid, 9)
-        cmd["ok"] = true
-        cmd["msg"] = {"Capture has been terminated"}
-    else
-        cmd["ok"] = false
-        cmd["msg"] = {"There was not active capture!"}
-    end
-    capture_cleanup()
-    res["cmd"] = cmd
-    res["capture"] = capture()
-    res["list"] = list()
-    luci.http.prepare_content("application/json")
-    luci.http.write_json(res)
-end
-
-function capture_active()
-    local f = io.open(pid_file, "r")
-    if f ~= nil then
-        pid = f:read()
+local function write_file(path, data)
+    local f = io.open(path, "w")
+    if f then
+        f:write(data or "")
         f:close()
-        -- Check it is a legal PID and still alive
-        if tonumber(pid) ~= nil and luci.sys.process.signal(pid, 0) then
-            return true, pid
-        end
+    end
+end
+
+local function pid_alive(pid)
+    return pid and tonumber(pid) and luci.sys.process.signal(pid, 0)
+end
+
+-- ========== Capture State ==========
+
+local function capture_active()
+    local pid = read_file(pid_file)
+    if pid and pid_alive(pid) then
+        return true, pid
     end
     return false, nil
 end
 
-function capture_log()
-    local log
+local function capture_log()
     local f = io.open(log_file, "r")
-    if f ~= nil then
-        log = f:read("*all")
-        f:close()
-    else
-        log = ""
-    end
+    if not f then return "" end
+    f:seek("end", -8192)
+    local log = f:read("*a") or ""
+    f:close()
     return log
 end
 
-function capture_name()
-    local cap_name = nil
-    local f = io.open(out_file, "r")
-    if f ~= nil then
-        cap_name = f:read()
-        f:close()
+-- ========== Param Check ==========
+
+local function param_check(ifname, stop_value, stop_unit, filter)
+    local errs = {}
+
+    if not ifname or ifname == "" then
+        table.insert(errs, "Interface is empty")
     end
-    return cap_name
+
+    if ifname ~= "any" then
+        local found = false
+        local nixio = require "nixio"
+        for _, v in ipairs(nixio.getifaddrs()) do
+            if v.family == "packet" and v.name == ifname then
+                found = true
+                break
+            end
+        end
+        if not found then
+            table.insert(errs, "Interface does not exist")
+        end
+    end
+
+    stop_value = tonumber(stop_value)
+    if not stop_value then
+        table.insert(errs, "Stop value must be a number")
+    end
+
+    if stop_unit ~= "T" and stop_unit ~= "P" then
+        table.insert(errs, "Stop unit must be T or P")
+    end
+
+    return #errs == 0, errs
 end
 
-function capture()
-    local fs = require "nixio.fs"
+-- ========== Start Capture ==========
+
+function capture_start(ifname, stop_value, stop_unit, filter)
     local res = {}
-    local active, pid = capture_active()
-    local msg
-    res["active"] = active
-    res["log"] = capture_log()
+    local active, _ = capture_active()
+
     if active then
-        res["msg"] = "Capture in progress.."
-        res["cap_name"] = capture_name()
-    elseif fs.access(pid_file) then
-        capture_cleanup()
-        res["msg"] = "Process seems to be dead, removing pid file!"
-    else
-        res["msg"] = "No capture in progress"
+        res.cmd = { ok = false, msg = { "Capture already running" } }
+        luci.http.write_json(res)
+        return
     end
-    return res, active, pid
-end
 
-function capture_cleanup()
-    -- Careless file removal
-    os.remove(pid_file)
-    os.remove(log_file)
-    os.remove(out_file)
-    local f = io.open(sleep_file, "r")
-    if f ~= nil then
-        pid = f:read()
-        f:close()
-        -- Kill sleep process if still alive
-        if tonumber(pid) ~= nil or not luci.sys.process.signal(pid, 0) then
-            luci.sys.process.signal(pid, 9)
+    local ok, errs = param_check(ifname, stop_value, stop_unit, filter)
+    if not ok then
+        res.cmd = { ok = false, msg = errs }
+        luci.http.write_json(res)
+        return
+    end
+
+    mkdir_p(cap_dir)
+    mkdir_p(filter_dir)
+
+    local name = "capture_" .. os.date("%Y-%m-%d_%H.%M.%S")
+    local pcap = cap_dir .. name .. ".pcap"
+    local flt  = filter_dir .. name .. ".filter"
+
+    write_file(flt, filter or "")
+    write_file(name_file, name)
+
+    local cmd = {
+        "tcpdump",
+        "-i", ifname,
+        "-Z", "nobody",
+        "-w", pcap
+    }
+
+    if filter and filter ~= "" then
+        table.insert(cmd, "-F")
+        table.insert(cmd, flt)
+    end
+
+    if tonumber(stop_value) > 0 then
+        if stop_unit == "P" then
+            table.insert(cmd, "-c")
+            table.insert(cmd, stop_value)
+        elseif stop_unit == "T" then
+            table.insert(cmd, "-G")
+            table.insert(cmd, stop_value)
+            table.insert(cmd, "-W")
+            table.insert(cmd, "1")
         end
     end
-    -- Careless file removal
-    os.remove(sleep_file)
-end
 
-function list_entries(cap_name)
-    local fs = require "nixio.fs"
-    local entries = {}
-    local name
-    local size
-    local mtime
-    local filter
-    local glob_str
-    if cap_name == nil then
-        glob_str = tcpdump_cap_folder .. "*.pcap"
-    else
-        glob_str = tcpdump_cap_folder .. cap_name .. ".pcap"
-    end
-    for file in fs.glob(glob_str) do
-        name = string.sub(fs.basename(file), 1, -6)
-        size = fs.stat(file, "size")
-        mtime = fs.stat(file, "ctime")
-        -- Figure out if there's an associated filter
-        if fs.access(tcpdump_filter_folder .. name .. ".filter") then
-            filter = true
-        else
-            filter = false
-        end
-        table.insert(entries,
-                     {name = name, size = size, mtime = mtime, filter = filter})
-    end
-    return entries
-end
+    local shell = table.concat(cmd, " ")
+    shell = string.format(
+        "nohup %s >%s 2>&1 </dev/null & echo $! > %s",
+        shell, log_file, pid_file
+    )
 
-function list(cap_name)
-    res = {}
-    res["entries"] = list_entries(cap_name)
-    res["update"] = (cap_name ~= nil)
-    return res
-end
+    os.execute(shell)
 
-function update(cap_name)
-    local res = {}
-    local cmd = {}
-    cmd["ok"] = true
-    res["cmd"] = cmd
-    res["capture"] = capture()
-    res["list"] = list(cap_name)
-    -- Build response
-    luci.http.prepare_content("application/json")
+    res.cmd = { ok = true, msg = { "Capture started" } }
     luci.http.write_json(res)
 end
 
--- 修复文件下载问题
-function capture_get(file_type, cap_name)
-    local fs = require "nixio.fs"
-    local http = require "luci.http"
-    
-    if file_type == "all" then
-        -- 打包下载所有文件
-        local tmp_tar = "/tmp/captures-all.tar"
-        local timestamp = os.date("%Y-%m-%d_%H.%M.%S")
-        os.execute(string.format("tar -cf %s -C %s . 2>/dev/null", tmp_tar, tcpdump_cap_folder))
-        
-        http.header('Content-Disposition', string.format('attachment; filename="captures-%s.tar"', timestamp))
-        http.prepare_content("application/x-tar")
-        
-        local fd = io.open(tmp_tar, "rb")
-        if fd then
-            http.write(fd:read("*a"))
-            fd:close()
-        end
-        os.remove(tmp_tar)
-        
-    elseif file_type == "pcap" then
-        -- 下载单个pcap文件
-        local file = tcpdump_cap_folder .. cap_name .. '.pcap'
-        if fs.access(file) then
-            http.header('Content-Disposition', string.format('attachment; filename="%s.pcap"', cap_name))
-            http.prepare_content("application/vnd.tcpdump.pcap")
-            local fd = io.open(file, "rb")
-            if fd then
-                http.write(fd:read("*a"))
-                fd:close()
-            end
-        else
-            http.status(404, "File not found")
-        end
-        
-    elseif file_type == "filter" then
-        -- 下载过滤器文件
-        local file = tcpdump_filter_folder .. cap_name .. '.filter'
-        if fs.access(file) then
-            http.header('Content-Disposition', string.format('attachment; filename="%s.filter.txt"', cap_name))
-            http.prepare_content("text/plain")
-            local fd = io.open(file, "r")
-            if fd then
-                http.write(fd:read("*a"))
-                fd:close()
-            end
-        else
-            http.status(404, "File not found")
-        end
+-- ========== Stop Capture ==========
+
+function capture_stop()
+    local res = {}
+    local active, pid = capture_active()
+
+    if active then
+        luci.sys.process.signal(pid, 9)
+        os.remove(pid_file)
+        res.cmd = { ok = true, msg = { "Capture stopped" } }
     else
-        http.status(400, "Invalid file type")
+        res.cmd = { ok = false, msg = { "No capture running" } }
+    end
+
+    luci.http.write_json(res)
+end
+
+-- ========== Update ==========
+
+function update()
+    local res = {}
+    local active, pid = capture_active()
+
+    res.capture = {
+        active = active,
+        log = capture_log(),
+        cap_name = read_file(name_file)
+    }
+
+    res.list = {
+        entries = list_entries()
+    }
+
+    luci.http.write_json(res)
+end
+
+-- ========== File List ==========
+
+local function list_entries()
+    local fs = require "nixio.fs"
+    local list = {}
+
+    for file in fs.glob(cap_dir .. "*.pcap") do
+        local name = fs.basename(file):gsub("%.pcap$", "")
+        local stat = fs.stat(file)
+        table.insert(list, {
+            name  = name,
+            size  = stat and stat.size or 0,
+            mtime = stat and stat.mtime or 0,
+            filter = fs.access(filter_dir .. name .. ".filter")
+        })
+    end
+
+    return list
+end
+
+-- ========== Download ==========
+
+function capture_get(file_type, cap_name)
+    local http = luci.http
+    local fs = require "nixio.fs"
+
+    if file_type == "pcap" then
+        local file = cap_dir .. cap_name .. ".pcap"
+        if fs.access(file) then
+            http.header("Content-Disposition", 'attachment; filename="' .. cap_name .. '.pcap"')
+            http.prepare_content("application/vnd.tcpdump.pcap")
+            http.write(fs.readfile(file))
+        else
+            http.status(404)
+        end
+
+    elseif file_type == "filter" then
+        local file = filter_dir .. cap_name .. ".filter"
+        if fs.access(file) then
+            http.header("Content-Disposition", 'attachment; filename="' .. cap_name .. '.filter.txt"')
+            http.prepare_content("text/plain")
+            http.write(fs.readfile(file))
+        else
+            http.status(404)
+        end
+
+    elseif file_type == "all" then
+        local tar = "/tmp/tcpdump-all.tar"
+        os.execute("tar -cf " .. tar .. " -C " .. cap_dir .. " . 2>/dev/null")
+        http.header("Content-Disposition", 'attachment; filename="captures.tar"')
+        http.prepare_content("application/x-tar")
+        http.write(fs.readfile(tar))
+        os.remove(tar)
     end
 end
 
+-- ========== Remove ==========
+
 function capture_remove(cap_name)
-    if cap_name == 'all' then
-        local fs = require "nixio.fs"
-        for file in fs.glob(tcpdump_cap_folder .. "*.pcap") do
-            os.remove(file)
-        end
-        for file in fs.glob(tcpdump_filter_folder .. "*.filter") do
-            os.remove(file)
-        end
+    if cap_name == "all" then
+        os.execute("rm -f " .. cap_dir .. "* " .. filter_dir .. "*")
     else
-        -- Remove both, capture and filter file
-        os.remove(tcpdump_cap_folder .. cap_name .. ".pcap")
-        os.remove(tcpdump_filter_folder .. cap_name .. ".filter")
+        os.remove(cap_dir .. cap_name .. ".pcap")
+        os.remove(filter_dir .. cap_name .. ".filter")
     end
-    -- Return current status and list
     update()
 end

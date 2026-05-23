@@ -1,0 +1,837 @@
+<%+header%>
+    <!-- 自定义样式 -->
+    <style>
+        /* 1. 按钮居中 */
+        #button-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        /* 2. 新增：统一宽度类 */
+        .standard-width {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* 3. 统一输入框高度与外观 (之前的优化) */
+        #cbi-tcpdump .cbi-input-text,
+        #cbi-tcpdump .cbi-input-select {
+            height: 34px;
+            line-height: 34px;
+            box-sizing: border-box;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        /* 4. 停止条件容器样式 (之前的优化) */
+        .stop-condition-container {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .stop-condition-container .cbi-input-text,
+        .stop-condition-container .cbi-input-select {
+            flex: 1;
+            width: calc((500px - 10px) / 2);
+            max-width: none;
+        }
+    </style>
+
+
+    <div class="cbi-map" id="cbi-tcpdump">
+        <h2 name="content">
+            <%:网络抓包工具 (Tcpdump)%>
+        </h2>
+        <div class="cbi-map-descr">
+            在此页面启动tcpdump抓包进程，并管理已捕获的数据包文件(.pcap)。捕获的文件存储在临时文件系统中，重启后会丢失。适用于OpenWrt24.10以上.
+        </div>
+
+        <fieldset class="cbi-section">
+            <h3>
+                <%:抓包参数设置%>
+            </h3>
+            <div class="cbi-section-node">
+
+                <!-- 网络接口 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="cap_ifname">
+                        <%:网络接口%>
+                    </label>
+                    <div class="cbi-value-field">
+                        <select class="cbi-input-select standard-width" id="cap_ifname" name="cap_ifname">
+                            <% local nixio=require "nixio" for k, v in ipairs(nixio.getifaddrs()) do if
+                                v.family=="packet" then %>
+                                <option value="<%=v.name%>" <%=(v.name=="br-lan" ) and 'selected' or '' %>><%=v.name%>
+                                </option>
+                                <% end end %>
+                                    <option value="any">
+                                        <%:任何接口 (any)%>
+                                    </option>
+                        </select>
+                        <div class="cbi-value-description">选择要监听的网络接口。选择 "any" 将捕获所有接口的流量。</div>
+                    </div>
+                </div>
+
+                <!-- 停止条件 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="cap_stop_value">
+                        <%:停止条件%>
+                    </label>
+                    <div class="cbi-value-field">
+                        <!-- 使用新定义的容器类 -->
+                        <div class="stop-condition-container">
+                            <input class="cbi-input-text" id="cap_stop_value" type="number" min="0" value="0"
+                                placeholder="0" />
+                            <select class="cbi-input-select" id="cap_stop_unit">
+                                <option value="P">
+                                    <%:数据包后停止%>
+                                </option>
+                                <option value="T">
+                                    <%:秒后停止%>
+                                </option>
+                            </select>
+                        </div>
+                        <div class="cbi-value-description">
+                            设置抓包停止条件：按数据包数量或持续时间。设置为0时需要手动停止抓包。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BPF过滤规则 -->
+                <div class="cbi-value">
+                    <label class="cbi-value-title" for="cap_filter">
+                        <%:BPF过滤规则%>
+                    </label>
+                    <div class="cbi-value-field">
+                        <!-- 保持原有宽度设置 -->
+                        <input class="cbi-input-text standard-width" type="text" placeholder="例如: host 192.168.1.1 or port 80"
+                            id="cap_filter" />
+                        <div class="cbi-value-description">
+                            可选。使用Berkeley Packet Filter语法指定捕获条件。示例：
+                            <ul style="margin: 5px 0 0 20px; color: #666;">
+                                <li><code>host 192.168.1.1</code> - 仅捕获与指定主机的通信</li>
+                                <li><code>port 80</code> - 仅捕获HTTP流量</li>
+                                <li><code>tcp port 22</code> - 仅捕获SSH流量</li>
+                                <li><code>net 192.168.1.0/24</code> - 捕获指定网络的流量</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 按钮组 -->
+                <div id="button-container">
+                    <button type="button" id="bt_capture" class="btn cbi-button cbi-button-apply">
+                        <span style="margin-right: 5px;">▶</span>
+                        <%:开始抓包%>
+                    </button>
+                    <button type="button" id="bt_clear" class="btn cbi-button cbi-button-reset">
+                        <span style="margin-right: 5px;">✕</span>
+                        <%:清空过滤器%>
+                    </button>
+                    <button type="button" id="bt_reset" class="btn cbi-button cbi-button-reset">
+                        <span style="margin-right: 5px;">↺</span>
+                        <%:重置设置%>
+                    </button>
+                    <button type="button" id="bt_help" class="btn cbi-button cbi-button-action">
+                        <span style="margin-right: 5px;">?</span>
+                        <%:帮助%>
+                    </button>
+                </div>
+
+                <div id="capture-hint" style="text-align: center; margin-top: 10px; color: #666; font-style: italic;">
+                    准备就绪。设置参数后点击"开始抓包"按钮。
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="cbi-section" id="log_section" style="display:none;">
+            <h3>
+                <%:实时抓包日志%>
+            </h3>
+            <div class="cbi-section-node">
+                <div class="cbi-value">
+                    <label class="cbi-value-title">
+                        <%:状态%>
+                    </label>
+                    <div class="cbi-value-field">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span id="capture-status-indicator"
+                                    style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ccc;"></span>
+                                <span id="capture-status-text" style="color: #666; font-style: italic;">
+                                    <%:抓包未开始%>
+                                </span>
+                            </div>
+                            <div>
+                                <button type="button" id="bt_clear_log" class="btn cbi-button cbi-button-action"
+                                    style="font-size: 12px; padding: 5px 10px; margin-right: 8px;">
+                                    <%:清空日志%>
+                                </button>
+                                <button type="button" id="bt_toggle_scroll" class="btn cbi-button"
+                                    style="font-size: 12px; padding: 5px 10px; background: #f0f0f0; border: 1px solid #ccc;">
+                                    <span id="autoscroll-icon">⬇</span> 自动滚动
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="background: #1e1e1e; border-radius: 4px; padding: 15px; position: relative;">
+                            <div id="log-header"
+                                style="color: #888; font-size: 12px; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                tcpdump 输出日志
+                            </div>
+                            <pre id="tcpdump-log" style="color: #f8f8f8; font-family: Monaco, Menlo, 'Ubuntu Mono', monospace; 
+                                    font-size: 12px; line-height: 1.4; margin: 0; 
+                                    min-height: 150px; max-height: 300px; overflow: auto; 
+                                    white-space: pre-wrap; word-wrap: break-word;">
+                        </pre>
+                            <div id="log-empty-message"
+                                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-style: italic;">
+                                等待抓包输出...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </fieldset>
+
+        <hr />
+
+        <fieldset class="cbi-section">
+            <h3>
+                <%:捕获文件%>
+            </h3>
+            <div class="cbi-section-descr">
+                以下为已保存到 <code>/tmp/tcpdump/cap/</code> 目录的抓包文件。
+            </div>
+
+            <div class="cbi-section cbi-tblsection">
+                <table class="table cbi-section-table" id="t_list">
+                    <thead>
+                        <tr class="cbi-section-table-titles">
+                            <th class="cbi-section-table-cell" data-widget="dvalue" style="width: 25%;">
+                                <%:文件名%>
+                            </th>
+                            <th class="cbi-section-table-cell" data-widget="dvalue" style="width: 20%;">
+                                <%:修改时间%>
+                            </th>
+                            <th class="cbi-section-table-cell" data-widget="dvalue" style="width: 15%;">
+                                <%:文件大小%>
+                            </th>
+                            <th class="cbi-section-table-cell" data-widget="button" style="width: 40%;">
+                                <%:操作%>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="t_list_body">
+                        <tr class="cbi-section-table-row placeholder">
+                            <td colspan="4" style="text-align: center; padding: 30px; color: #666;">
+                                <em>正在加载捕获文件列表...</em>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot id="t_list_footer" style="display: none;">
+                        <tr class="cbi-section-table-row summary-row">
+                            <td style="font-weight: bold;">
+                                <%:总计%>
+                            </td>
+                            <td><span id="total_files">0</span> 个文件</td>
+                            <td style="font-weight: bold;"><span id="total_size">0 B</span></td>
+                            <td>
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="button" id="bt_download_all"
+                                        class="btn cbi-button cbi-button-download" style="flex: 1;">
+                                        <%:下载全部 (.tar)%>
+                                    </button>
+                                    <button type="button" id="bt_remove_all" class="btn cbi-button cbi-button-reset"
+                                        style="flex: 1;">
+                                        <%:删除全部%>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </fieldset>
+    </div>
+
+    <script type="text/javascript" src="<%=resource%>/cbi.js"></script>
+    <script type="text/javascript">
+        //<![CDATA[
+        (function () {
+            // 抓包控制相关变量
+            var capture_active = false;
+            var capture_name = "";
+            var autoScrollEnabled = true;
+            var pollInterval = null;
+
+            // 等待页面完全加载
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                // DOM已经加载完成
+                init();
+            }
+
+            function init() {
+                // 添加DOM元素存在性检查
+                if (!document.getElementById('cap_ifname')) {
+                    console.log('等待DOM元素加载...');
+                    setTimeout(init, 100);
+                    return;
+                }
+                console.log('TCPdump 页面初始化...');
+
+                // 绑定按钮事件
+                bindEvents();
+                update_button();
+                update_poll(); // 开始轮询状态
+            }
+
+            // 绑定所有按钮事件
+            function bindEvents() {
+                // 开始/停止抓包按钮
+                var btCapture = document.getElementById('bt_capture');
+                if (btCapture) {
+                    btCapture.onclick = function () {
+                        if (!capture_active) {
+                            capture_start();
+                        } else {
+                            capture_stop();
+                        }
+                    };
+                }
+
+                // 清空过滤器按钮
+                var btClear = document.getElementById('bt_clear');
+                if (btClear) {
+                    btClear.onclick = function () {
+                        var filterInput = document.getElementById('cap_filter');
+                        if (filterInput) {
+                            filterInput.value = '';
+                            showHint('过滤器已清空。', 'info');
+                        }
+                    };
+                }
+
+                // 重置设置按钮
+                var btReset = document.getElementById('bt_reset');
+                if (btReset) {
+                    btReset.onclick = function () {
+                        resetCaptureForm();
+                    };
+                }
+
+                // 帮助按钮
+                var btHelp = document.getElementById('bt_help');
+                if (btHelp) {
+                    btHelp.onclick = function () {
+                        showHelp();
+                    };
+                }
+
+                // 清空日志按钮
+                var btClearLog = document.getElementById('bt_clear_log');
+                if (btClearLog) {
+                    btClearLog.onclick = function () {
+                        clearLog();
+                    };
+                }
+
+                // 自动滚动按钮
+                var btToggleScroll = document.getElementById('bt_toggle_scroll');
+                if (btToggleScroll) {
+                    btToggleScroll.onclick = function () {
+                        toggleLogAutoScroll();
+                    };
+                }
+
+                // 下载全部按钮
+                var btDownloadAll = document.getElementById('bt_download_all');
+                if (btDownloadAll) {
+                    btDownloadAll.onclick = function () {
+                        downloadAll();
+                    };
+                }
+
+                // 删除全部按钮
+                var btRemoveAll = document.getElementById('bt_remove_all');
+                if (btRemoveAll) {
+                    btRemoveAll.onclick = function () {
+                        removeAll();
+                    };
+                }
+            }
+
+            // 重置表单
+            function resetCaptureForm() {
+                var ifname = document.getElementById('cap_ifname');
+                var stop_value = document.getElementById('cap_stop_value');
+                var stop_unit = document.getElementById('cap_stop_unit');
+                var filter = document.getElementById('cap_filter');
+
+                if (ifname) ifname.value = 'any';
+                if (stop_value) stop_value.value = '0';
+                if (stop_unit) stop_unit.value = 'P';
+                if (filter) filter.value = '';
+
+                showHint('表单已重置为默认值。', 'success');
+            }
+
+            // 显示帮助
+            function showHelp() {
+                alert('tcpdump 抓包工具帮助：\n\n' +
+                    '1. 网络接口：选择要监听的网络接口\n' +
+                    '2. 停止条件：设置抓包停止条件（数据包数量或秒数）\n' +
+                    '3. BPF过滤规则：使用过滤器缩小抓包范围\n\n' +
+                    '常用BPF过滤器示例：\n' +
+                    '  - host 192.168.1.1\n' +
+                    '  - port 80\n' +
+                    '  - tcp port 22\n' +
+                    '  - net 192.168.1.0/24\n' +
+                    '  - icmp\n' +
+                    '  - not port 22\n\n' +
+                    '注意：捕获的文件保存在临时目录，重启后会丢失。');
+            }
+
+            // 自动滚动控制
+            function toggleLogAutoScroll() {
+                var icon = document.getElementById('autoscroll-icon');
+                var button = document.getElementById('bt_toggle_scroll');
+
+                if (icon && button) {
+                    autoScrollEnabled = !autoScrollEnabled;
+
+                    if (autoScrollEnabled) {
+                        icon.textContent = '⬇';
+                        button.style.background = '#f0f0f0';
+                        button.style.color = '#333';
+                    } else {
+                        icon.textContent = '⏸';
+                        button.style.background = '#ffebee';
+                        button.style.color = '#c62828';
+                    }
+                }
+            }
+
+            // 更新开始/停止按钮状态
+            function update_button() {
+                var bt_capture = document.getElementById('bt_capture');
+                var status_text = document.getElementById('capture-status-text');
+                var status_indicator = document.getElementById('capture-status-indicator');
+                var hint = document.getElementById('capture-hint');
+
+                if (!bt_capture) return;
+
+                if (!capture_active) {
+                    bt_capture.innerHTML = '<span style="margin-right: 5px;">▶</span><%:开始抓包%>';
+                    bt_capture.className = 'btn cbi-button cbi-button-apply';
+
+                    if (status_indicator) {
+                        status_indicator.style.background = '#ccc';
+                        status_indicator.style.boxShadow = 'none';
+                    }
+                    if (status_text) {
+                        status_text.textContent = '抓包已停止';
+                        status_text.style.color = '#666';
+                    }
+                    if (hint) {
+                        hint.innerHTML = '准备就绪。设置参数后点击"开始抓包"按钮。';
+                        hint.style.background = '#f5f5f5';
+                        hint.style.color = '#666';
+                    }
+                } else {
+                    bt_capture.innerHTML = '<span style="margin-right: 5px;">⏹</span><%:停止抓包%>';
+                    bt_capture.className = 'btn cbi-button cbi-button-reset';
+
+                    if (status_indicator) {
+                        status_indicator.style.background = '#4caf50';
+                        status_indicator.style.boxShadow = '0 0 8px rgba(76, 175, 80, 0.5)';
+                    }
+                    if (status_text) {
+                        status_text.textContent = '抓包进行中';
+                        status_text.style.color = '#4caf50';
+                    }
+                    if (hint) {
+                        hint.innerHTML = '抓包进行中... 点击"停止抓包"按钮结束捕获。';
+                        hint.style.background = '#e8f5e8';
+                        hint.style.color = '#2e7d32';
+                    }
+                }
+            }
+
+            // 清空日志
+            function clearLog() {
+                var logElement = document.getElementById('tcpdump-log');
+                var emptyMsg = document.getElementById('log-empty-message');
+
+                if (logElement) {
+                    logElement.innerHTML = '';
+                }
+                if (emptyMsg) {
+                    emptyMsg.style.display = 'block';
+                }
+            }
+
+            // 显示提示消息
+            function showHint(message, type) {
+                var hint = document.getElementById('capture-hint');
+                if (!hint) return;
+
+                hint.innerHTML = message;
+
+                var bgColor = '#f5f5f5';
+                var textColor = '#666';
+
+                switch (type) {
+                    case 'success':
+                        bgColor = '#e8f5e8';
+                        textColor = '#2e7d32';
+                        break;
+                    case 'error':
+                        bgColor = '#ffebee';
+                        textColor = '#c62828';
+                        break;
+                    case 'warning':
+                        bgColor = '#fff8e1';
+                        textColor = '#f57c00';
+                        break;
+                    case 'info':
+                    default:
+                        bgColor = '#e3f2fd';
+                        textColor = '#1565c0';
+                        break;
+                }
+
+                hint.style.background = bgColor;
+                hint.style.color = textColor;
+
+                // 3秒后恢复原样
+                setTimeout(function () {
+                    if (!capture_active) {
+                        hint.innerHTML = '准备就绪。设置参数后点击"开始抓包"按钮。';
+                        hint.style.background = '#f5f5f5';
+                        hint.style.color = '#666';
+                    }
+                }, 3000);
+            }
+
+            // 开始抓包
+            function capture_start() {
+                var ifname = document.getElementById('cap_ifname');
+                var stop_value = document.getElementById('cap_stop_value');
+                var stop_unit = document.getElementById('cap_stop_unit');
+                var filter = document.getElementById('cap_filter');
+
+                if (!ifname || !stop_value || !stop_unit || !filter) {
+                    showHint('无法获取表单参数，请刷新页面重试。', 'error');
+                    return;
+                }
+
+                // 显示日志区域
+                var logSection = document.getElementById('log_section');
+                if (logSection) {
+                    logSection.style.display = 'block';
+                }
+                clearLog();
+
+                // 调用后端API
+                if (typeof XHR !== 'undefined') {
+                    XHR.get('<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/capture_start/' +
+                        encodeURIComponent(ifname.value) + '/' +
+                        encodeURIComponent(stop_value.value) + '/' +
+                        encodeURIComponent(stop_unit.value) + '/' +
+                        encodeURIComponent(filter.value),
+                        null,
+                        function (xhr, json) {
+                            update_callback(xhr, json);
+                            update_poll(); // 开始轮询更新状态
+                        }
+                    );
+                } else {
+                    showHint('错误：无法连接到服务器。', 'error');
+                }
+            }
+
+            // 停止抓包
+            function capture_stop() {
+                if (typeof XHR !== 'undefined') {
+                    XHR.get('<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/capture_stop',
+                        null,
+                        update_callback
+                    );
+                } else {
+                    showHint('错误：无法连接到服务器。', 'error');
+                }
+            }
+
+            // 轮询更新状态
+            function update_poll() {
+                if (typeof XHR !== 'undefined') {
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                    }
+
+                    pollInterval = setInterval(function () {
+                        XHR.get('<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/update',
+                            null,
+                            update_callback
+                        );
+                    }, 3000);
+                }
+            }
+
+            // 更新回调
+            function update_callback(xhr, json) {
+                if (!xhr || !json) return;
+
+                // 更新表格
+                update_table(xhr, json);
+
+                // 更新状态
+                update_status(xhr, json);
+            }
+
+            // 更新文件列表表格
+            function update_table(xhr, json) {
+                var table_body = document.getElementById("t_list_body");
+                var table_footer = document.getElementById("t_list_footer");
+
+                if (!table_body) return;
+
+                // 清空表格
+                table_body.innerHTML = '';
+
+                if (!json || !json.list || !json.list.entries || json.list.entries.length === 0) {
+                    var row = table_body.insertRow();
+                    var cell = row.insertCell(0);
+                    cell.colSpan = 4;
+                    cell.style.textAlign = "center";
+                    cell.style.padding = "30px";
+                    cell.style.color = "#666";
+                    cell.innerHTML = '<em>暂无捕获文件</em>';
+
+                    if (table_footer) {
+                        table_footer.style.display = 'none';
+                    }
+                    return;
+                }
+
+                var entries = json.list.entries;
+                var total_size = 0;
+
+                // 添加文件行
+                for (var i = 0; i < entries.length; i++) {
+                    var row = table_body.insertRow();
+                    row.className = 'cbi-section-table-row';
+
+                    // 文件名
+                    var name_cell = row.insertCell();
+                    name_cell.innerHTML =
+                        '<div style="display: flex; align-items: center;">' +
+                        '  <span style="margin-right: 8px;">📁</span>' +
+                        '  <div>' +
+                        '    <div style="font-weight: 500;">' + (entries[i].name || '') + '.pcap</div>' +
+                        '    <div style="font-size: 12px; color: #666;">' +
+                        (entries[i].filter ? '包含过滤器规则' : '无过滤器') +
+                        '</div>' +
+                        '  </div>' +
+                        '</div>';
+
+                    // 修改时间
+                    var time_cell = row.insertCell();
+                    time_cell.innerHTML = human_date(entries[i].mtime);
+                    time_cell.style.verticalAlign = 'middle';
+
+                    // 文件大小
+                    var size_cell = row.insertCell();
+                    size_cell.innerHTML = human_size(entries[i].size);
+                    size_cell.style.verticalAlign = 'middle';
+
+                    // 操作按钮
+                    var action_cell = row.insertCell();
+                    action_cell.style.verticalAlign = 'middle';
+                    action_cell.innerHTML =
+                        '<div style="display: flex; gap: 6px;">' +
+                        '  <button class="btn cbi-button cbi-button-download download-pcap-btn" ' +
+                        '          style="flex: 1; padding: 5px 8px; font-size: 12px;" ' +
+                        '          data-name="' + (entries[i].name || '') + '">' +
+                        '    .pcap' +
+                        '  </button>' +
+                        '  <button class="btn cbi-button cbi-button-action download-filter-btn" ' +
+                        '          ' + (entries[i].filter ? '' : 'disabled ') +
+                        '          style="flex: 1; padding: 5px 8px; font-size: 12px;" ' +
+                        '          data-name="' + (entries[i].name || '') + '">' +
+                        '    过滤器' +
+                        '  </button>' +
+                        '  <button class="btn cbi-button cbi-button-remove remove-capture-btn" ' +
+                        '          style="flex: 1; padding: 5px 8px; font-size: 12px; background: #f44336; color: white; border-color: #d32f2f;" ' +
+                        '          data-name="' + (entries[i].name || '') + '">' +
+                        '    删除' +
+                        '  </button>' +
+                        '</div>';
+
+                    total_size += entries[i].size || 0;
+                }
+
+                // 更新总计行
+                var totalFilesEl = document.getElementById('total_files');
+                var totalSizeEl = document.getElementById('total_size');
+
+                if (totalFilesEl) totalFilesEl.textContent = entries.length;
+                if (totalSizeEl) totalSizeEl.textContent = human_size(total_size);
+                if (table_footer) table_footer.style.display = 'table-footer-group';
+
+                // 重新绑定动态按钮的事件
+                rebindDynamicButtons();
+            }
+
+            // 重新绑定动态生成的按钮事件
+            function rebindDynamicButtons() {
+                // 绑定.pcap下载按钮
+                var pcapBtns = document.getElementsByClassName('download-pcap-btn');
+                for (var i = 0; i < pcapBtns.length; i++) {
+                    pcapBtns[i].onclick = function () {
+                        var capName = this.getAttribute('data-name');
+                        downloadCapture('pcap', capName);
+                    };
+                }
+
+                // 绑定过滤器下载按钮
+                var filterBtns = document.getElementsByClassName('download-filter-btn');
+                for (var i = 0; i < filterBtns.length; i++) {
+                    if (!filterBtns[i].disabled) {
+                        filterBtns[i].onclick = function () {
+                            var capName = this.getAttribute('data-name');
+                            downloadCapture('filter', capName);
+                        };
+                    }
+                }
+
+                // 绑定删除按钮
+                var removeBtns = document.getElementsByClassName('remove-capture-btn');
+                for (var i = 0; i < removeBtns.length; i++) {
+                    removeBtns[i].onclick = function () {
+                        var capName = this.getAttribute('data-name');
+                        removeCapture(capName);
+                    };
+                }
+            }
+
+            // 更新状态和日志
+            function update_status(xhr, json) {
+                if (!json) return;
+
+                capture_active = json.capture && json.capture.active;
+                capture_name = json.capture && json.capture.cap_name ? json.capture.cap_name : '';
+
+                // 更新日志显示
+                var log_element = document.getElementById("tcpdump-log");
+                var log_section = document.getElementById("log_section");
+                var emptyMsg = document.getElementById('log-empty-message');
+
+                if (capture_active && json.capture && json.capture.log) {
+                    if (log_section) {
+                        log_section.style.display = 'block';
+                    }
+                    if (emptyMsg) {
+                        emptyMsg.style.display = 'none';
+                    }
+
+                    if (log_element && json.capture.log.trim() !== '') {
+                        log_element.innerHTML += json.capture.log;
+                        // 自动滚动到底部（如果启用）
+                        if (autoScrollEnabled) {
+                            log_element.scrollTop = log_element.scrollHeight;
+                        }
+                    }
+                } else if (!capture_active) {
+                    // 可以保持日志区域显示
+                    if (emptyMsg && log_element && log_element.innerHTML.trim() === '') {
+                        emptyMsg.style.display = 'block';
+                    }
+                }
+
+                // 更新按钮状态
+                update_button();
+            }
+
+            // 格式化文件大小
+            function human_size(size) {
+                if (size === 0) return "0 B";
+                var units = ["B", "KiB", "MiB", "GiB", "TiB"];
+                var unit_index = 0;
+                var s = size;
+                while (s >= 1024 && unit_index < units.length - 1) {
+                    s /= 1024;
+                    unit_index++;
+                }
+                return s.toFixed(2) + " " + units[unit_index];
+            }
+
+            // 格式化日期
+            function human_date(timestamp) {
+                if (!timestamp) return "";
+                var date = new Date(timestamp * 1000);
+                return date.getFullYear() + '-' +
+                    ('0' + (date.getMonth() + 1)).slice(-2) + '-' +
+                    ('0' + date.getDate()).slice(-2) + ' ' +
+                    ('0' + date.getHours()).slice(-2) + ':' +
+                    ('0' + date.getMinutes()).slice(-2) + ':' +
+                    ('0' + date.getSeconds()).slice(-2);
+            }
+
+            // 下载文件
+            function downloadCapture(type, cap_name) {
+                var iframe = document.getElementById("hiddenDownloader");
+                if (!iframe) {
+                    iframe = document.createElement('iframe');
+                    iframe.id = "hiddenDownloader";
+                    iframe.style.display = 'none';
+                    document.body.appendChild(iframe);
+                }
+                iframe.src = '<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/capture_get/' +
+                    encodeURIComponent(type) + '/' +
+                    (cap_name ? encodeURIComponent(cap_name) : '');
+            }
+
+            // 下载全部文件
+            function downloadAll() {
+                downloadCapture('all', '');
+            }
+
+            // 删除文件
+            function removeCapture(cap_name) {
+                if (confirm('确定要删除"' + cap_name + '.pcap"文件吗？')) {
+                    if (typeof XHR !== 'undefined') {
+                        XHR.get('<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/capture_remove/' +
+                            encodeURIComponent(cap_name),
+                            null,
+                            update_callback
+                        );
+                    }
+                }
+            }
+
+            // 删除全部文件
+            function removeAll() {
+                if (confirm('确定要删除所有捕获文件吗？此操作不可撤销。')) {
+                    if (typeof XHR !== 'undefined') {
+                        XHR.get('<%=luci.dispatcher.build_url("admin", "network", "tcpdump")%>/capture_remove/all',
+                            null,
+                            update_callback
+                        );
+                    }
+                }
+            }
+        })();
+        //]]>
+    </script>
+
+    <%+footer%>

@@ -44,68 +44,155 @@ jobs:
           path: ${{ env.SDK_DIR }}
           key: ${{ runner.os }}-sdk-apk-${{ matrix.target.name }}-${{ env.OPENWRT_VERSION }}
 
-      - name: Download and prepare OpenWrt SDK
+      - name: Download, extract OpenWrt SDK and update feeds
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           release_version="${OPENWRT_VERSION#v}"
-          sdk_url="https://downloads.openwrt.org/releases/${release_version}/targets/${{ matrix.target.path }}"
-          sdk_file=$(curl -s "$sdk_url/" | grep -o 'openwrt-sdk-[^"]*\.tar\.(xz|zst)' | head -n1)
+          sdk_url_prefix="https://downloads.openwrt.org/releases/${release_version}/targets/${{ matrix.target.path }}"
+          
+          sdk_filename=$(curl -s "$sdk_url_prefix/" | \
+                        grep -o '<a href="openwrt-sdk-.*-x86_64\.tar\.\(xz\|zst\)">' | \
+                        sed -e 's/.*<a href="//' -e 's/">//' | \
+                        head -n 1)
 
-          wget -q "$sdk_url/$sdk_file"
-          tar -xf "$sdk_file"
-          mv openwrt-sdk-* ${{ env.SDK_DIR }}
-
-          cd ${{ env.SDK_DIR }}
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Copy package source
-        working-directory: ${{ env.SDK_DIR }}
-        run: |
-          pkg_src="${{ github.workspace }}/luci-app-wechatpush-master"
-
-          if [ ! -f "$pkg_src/Makefile" ]; then
-            echo "::error::Makefile not found in $pkg_src"
+          if [ -z "$sdk_filename" ]; then
+            echo "::error::Could not find SDK file at ${sdk_url_prefix}/"
+            echo "Available files:"
+            curl -s "$sdk_url_prefix/" | grep -o '<a href="[^"]*">[^<]*</a>' | sed -e 's/<a href="\(.*\)".*>\(.*\)/\1\t\2/'
             exit 1
           fi
+          
+          echo "Downloading SDK: ${sdk_url_prefix}/${sdk_filename}"
+          wget -q "${sdk_url_prefix}/${sdk_filename}"
+          
+          echo "Extracting SDK..."
+          tar -xf "$sdk_filename"
+          mv $(find . -maxdepth 1 -type d -name 'openwrt-sdk-*') ${{ env.SDK_DIR }}
 
-          rm -rf package/${PACKAGE_NAME}
-          mkdir -p package/${PACKAGE_NAME}
-          rsync -a --delete "$pkg_src"/ package/${PACKAGE_NAME}/
+          echo "Updating feeds..."
+          cd ${{ env.SDK_DIR }}
+          
+          echo "Original feeds configuration:"
+          cat feeds.conf.default
+          
+          max_retries=5
+          retry_count=0
+          while [ $retry_count -lt $max_retries ]; do
+            echo "Attempt $((retry_count + 1)) of $max_retries to update feeds..."
+            
+            echo "Replacing feeds URLs with GitHub mirrors..."
+            sed -i 's|https://git.openwrt.org/openwrt/openwrt.git|https://github.com/openwrt/openwrt.git|g' feeds.conf.default
+            sed -i 's|https://git.openwrt.org/feed/packages.git|https://github.com/openwrt/packages.git|g' feeds.conf.default
+            sed -i 's|https://git.openwrt.org/project/luci.git|https://github.com/openwrt/luci.git|g' feeds.conf.default
+            sed -i 's|https://git.openwrt.org/feed/routing.git|https://github.com/openwrt/routing.git|g' feeds.conf.default
+            sed -i 's|https://git.openwrt.org/feed/telephony.git|https://github.com/openwrt/telephony.git|g' feeds.conf.default
+            
+            if [ $retry_count -eq 0 ]; then
+              echo "Updated feeds configuration:"
+              cat feeds.conf.default
+            fi
+            
+            if ./scripts/feeds update -a; then
+              echo "Feeds update successful"
+              break
+            else
+              retry_count=$((retry_count + 1))
+              if [ $retry_count -lt $max_retries ]; then
+                wait_time=$((60 * retry_count))
+                echo "Feeds update failed, waiting ${wait_time} seconds before retry..."
+                sleep $wait_time
+              else
+                echo "::error::Feeds update failed after $max_retries attempts"
+                exit 1
+              fi
+            fi
+          done
+          
+          ./scripts/feeds install -a
+          cd ..
 
-          translation_pkg=${PACKAGE_NAME#luci-app-}
-
-          cat <<EOF > .config
-          CONFIG_PACKAGE_${PACKAGE_NAME}=m
-          CONFIG_PACKAGE_luci-i18n-${translation_pkg}-zh-cn=m
-          CONFIG_LUCI_LANG_zh_Hans=y
-          EOF
-
-          make defconfig
-
-      - name: Compile package
-        working-directory: ${{ env.SDK_DIR }}
-        run: make package/${PACKAGE_NAME}/compile V=s -j$(nproc)
-
-      - name: Collect APKs
-        id: collect
+      - name: Prepare build environment
         working-directory: ${{ env.SDK_DIR }}
         run: |
+          rm -rf package/${PACKAGE_NAME}
+
+          # ✅ 只改了这一行（原来是 github.workspace）
+          pkg_src="${{ github.workspace }}/luci-app-wechatpush-master"
+
+          if [ -f "$pkg_src/Makefile" ]; then
+            pkg_src="$pkg_src"
+          else
+            pkg_src=$(find "${{ github.workspace }}" -maxdepth 1 -type d -name "${PACKAGE_NAME}" -o -name "luci-app-*${PACKAGE_NAME#luci-app-}*" | head -n 1)
+            if [ -z "$pkg_src" ]; then
+              echo "::error::Could not locate package directory for ${PACKAGE_NAME}"
+              exit 1
+            fi
+          fi
+
+          mkdir -p ./package/${PACKAGE_NAME}
+          rsync -a --delete "$pkg_src"/ ./package/${PACKAGE_NAME}/
+          
+          translation_pkg=${PACKAGE_NAME#luci-app-}
+          mkdir -p ./bin/packages
+          find ./bin/packages -type f -name "${PACKAGE_NAME}*.apk" -delete
+          find ./bin/packages -type f -name "luci-i18n-${translation_pkg}-*.apk" -delete
+          {
+            echo "CONFIG_PACKAGE_${PACKAGE_NAME}=m"
+            echo "CONFIG_PACKAGE_${PACKAGE_NAME}_Enable_Local_Disk_Information_Detection=y"
+            echo "CONFIG_PACKAGE_${PACKAGE_NAME}_Enable_Host_Information_Detection=y"
+            echo "CONFIG_PACKAGE_lsblk=m"
+            echo "CONFIG_PACKAGE_smartmontools=m"
+            echo "CONFIG_PACKAGE_smartmontools-drivedb=m"
+            echo "CONFIG_PACKAGE_openssh-client=m"
+            echo "CONFIG_PACKAGE_openssh-keygen=m"
+            echo "CONFIG_PACKAGE_luci-i18n-${translation_pkg}-zh-cn=m"
+            echo "CONFIG_LUCI_LANG_zh_Hans=y"
+          } > .config
+          make defconfig
+
+      - name: Compile the package
+        working-directory: ${{ env.SDK_DIR }}
+        run: |
+          make package/${PACKAGE_NAME}/compile V=s -j$(($(nproc) + 1))
+
+      - name: Find and prepare .apk file
+        id: find_apk
+        working-directory: ${{ env.SDK_DIR }}
+        run: |
+          translation_pkg=${PACKAGE_NAME#luci-app-}
+          rm -rf upload
           mkdir -p upload
-          find bin -name '*.apk' -exec cp {} upload/ \;
+          find ./bin/packages -type f \( -name "${PACKAGE_NAME}*.apk" -o -name "luci-i18n-${translation_pkg}-*.apk" -o -name "lsblk*.apk" -o -name "smartmontools*.apk" -o -name "openssh-client*.apk" -o -name "openssh-keygen*.apk" \) | while read -r apk; do
+            rel_path=${apk#./}
+            echo "Found apk: $rel_path"
+            cp "$apk" upload/
+          done
+          if ! find upload -maxdepth 1 -type f -name '*.apk' | grep -q '.'; then
+            echo "::error::No apk files found in ./bin/packages/"
+            echo "Directory tree of ./bin/:"
+            ls -R ./bin/
+            exit 1
+          fi
           echo "path=upload" >> $GITHUB_OUTPUT
 
-      - name: Upload APK artifacts
+      - name: Upload .apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}-apk
-          path: ${{ env.SDK_DIR }}/${{ steps.collect.outputs.path }}
+          name: ${{ env.PACKAGE_NAME }}-apk-${{ matrix.target.name }}
+          path: ${{ env.SDK_DIR }}/${{ steps.find_apk.outputs.path }}
+          if-no-files-found: error
 
   build-ipk:
     name: Build IPK (v23.05)
     runs-on: ubuntu-latest
     env:
       OPENWRT_VERSION: 'v23.05.3'
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: all
+            path: x86/64
 
     steps:
       - name: Checkout package repository
@@ -121,64 +208,101 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.SDK_DIR }}
-          key: ${{ runner.os }}-sdk-ipk-${{ env.OPENWRT_VERSION }}
+          key: ${{ runner.os }}-sdk-ipk-${{ matrix.target.name }}-${{ env.OPENWRT_VERSION }}
 
-      - name: Download and prepare OpenWrt SDK
+      - name: Download, extract OpenWrt SDK and update feeds
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           release_version="${OPENWRT_VERSION#v}"
-          sdk_url="https://downloads.openwrt.org/releases/${release_version}/targets/x86/64"
-          sdk_file=$(curl -s "$sdk_url/" | grep -o 'openwrt-sdk-[^"]*\.tar\.(xz|zst)' | head -n1)
+          sdk_url_prefix="https://downloads.openwrt.org/releases/${release_version}/targets/${{ matrix.target.path }}"
+          
+          sdk_filename=$(curl -s "$sdk_url_prefix/" | \
+                        grep -o '<a href="openwrt-sdk-.*-x86_64\.tar\.\(xz\|zst\)">' | \
+                        sed -e 's/.*<a href="//' -e 's/">//' | \
+                        head -n 1)
 
-          wget -q "$sdk_url/$sdk_file"
-          tar -xf "$sdk_file"
-          mv openwrt-sdk-* ${{ env.SDK_DIR }}
+          if [ -z "$sdk_filename" ]; then
+            echo "::error::Could not find SDK file at ${sdk_url_prefix}/"
+            echo "Available files:"
+            curl -s "$sdk_url_prefix/" | grep -o '<a href="[^"]*">[^<]*</a>' | sed -e 's/<a href="\(.*\)".*>\(.*\)/\1\t\2/'
+            exit 1
+          fi
+          
+          echo "Downloading SDK: ${sdk_url_prefix}/${sdk_filename}"
+          wget -q "${sdk_url_prefix}/${sdk_filename}"
+          
+          echo "Extracting SDK..."
+          tar -xf "$sdk_filename"
+          mv $(find . -maxdepth 1 -type d -name 'openwrt-sdk-*') ${{ env.SDK_DIR }}
 
+          echo "Updating feeds..."
           cd ${{ env.SDK_DIR }}
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          cd ..
 
-      - name: Copy package source
+      - name: Prepare build environment
         working-directory: ${{ env.SDK_DIR }}
         run: |
+          rm -rf package/${PACKAGE_NAME}
+
+          # ✅ 只改了这一行（原来是 github.workspace）
           pkg_src="${{ github.workspace }}/luci-app-wechatpush-master"
 
-          if [ ! -f "$pkg_src/Makefile" ]; then
-            echo "::error::Makefile not found in $pkg_src"
-            exit 1
+          if [ -f "$pkg_src/Makefile" ]; then
+            pkg_src="$pkg_src"
+          else
+            pkg_src=$(find "${{ github.workspace }}" -maxdepth 1 -type d -name "${PACKAGE_NAME}" -o -name "luci-app-*${PACKAGE_NAME#luci-app-}*" | head -n 1)
+            if [ -z "$pkg_src" ]; then
+              echo "::error::Could not locate package directory for ${PACKAGE_NAME}"
+              exit 1
+            fi
           fi
 
-          rm -rf package/${PACKAGE_NAME}
-          mkdir -p package/${PACKAGE_NAME}
-          rsync -a --delete "$pkg_src"/ package/${PACKAGE_NAME}/
-
+          mkdir -p ./package/${PACKAGE_NAME}
+          rsync -a --delete "$pkg_src"/ ./package/${PACKAGE_NAME}/
           translation_pkg=${PACKAGE_NAME#luci-app-}
-
-          cat <<EOF > .config
-          CONFIG_PACKAGE_${PACKAGE_NAME}=m
-          CONFIG_PACKAGE_luci-i18n-${translation_pkg}-zh-cn=m
-          CONFIG_LUCI_LANG_zh_Hans=y
-          EOF
-
+          mkdir -p ./bin/packages
+          find ./bin/packages -type f -name "${PACKAGE_NAME}*.ipk" -delete
+          find ./bin/packages -type f -name "luci-i18n-${translation_pkg}-*.ipk" -delete
+          {
+            echo "CONFIG_PACKAGE_${PACKAGE_NAME}=m"
+            echo "CONFIG_PACKAGE_luci-i18n-${translation_pkg}-zh-cn=m"
+            echo "CONFIG_LUCI_LANG_zh_Hans=y"
+          } > .config
           make defconfig
 
-      - name: Compile package
-        working-directory: ${{ env.SDK_DIR }}
-        run: make package/${PACKAGE_NAME}/compile V=s -j$(nproc)
-
-      - name: Collect IPKs
-        id: collect
+      - name: Compile the package
         working-directory: ${{ env.SDK_DIR }}
         run: |
+          make package/${PACKAGE_NAME}/compile V=s -j$(($(nproc) + 1))
+
+      - name: Find and prepare .ipk file
+        id: find_ipk
+        working-directory: ${{ env.SDK_DIR }}
+        run: |
+          translation_pkg=${PACKAGE_NAME#luci-app-}
+          rm -rf upload
           mkdir -p upload
-          find bin -name '*.ipk' -exec cp {} upload/ \;
+          find ./bin/packages -type f \( -name "${PACKAGE_NAME}*.ipk" -o -name "luci-i18n-${translation_pkg}-*.ipk" \) | while read -r ipk; do
+            rel_path=${ipk#./}
+            echo "Found IPK: $rel_path"
+            cp "$ipk" upload/
+          done
+          if ! find upload -maxdepth 1 -type f -name '*.ipk' | grep -q '.'; then
+            echo "::error::No IPK files found in ./bin/packages/"
+            echo "Directory tree of ./bin/:"
+            ls -R ./bin/
+            exit 1
+          fi
           echo "path=upload" >> $GITHUB_OUTPUT
 
-      - name: Upload IPK artifacts
+      - name: Upload .ipk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}-ipk
-          path: ${{ env.SDK_DIR }}/${{ steps.collect.outputs.path }}
+          name: ${{ env.PACKAGE_NAME }}-ipk-${{ matrix.target.name }}
+          path: ${{ env.SDK_DIR }}/${{ steps.find_ipk.outputs.path }}
+          if-no-files-found: error
 
   release:
     name: Publish Release
@@ -186,15 +310,15 @@ jobs:
     needs: [build-apk, build-ipk]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release
+          path: release-assets
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: release/**/*
+          files: release-assets/**/*

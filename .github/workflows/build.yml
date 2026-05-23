@@ -1,4 +1,4 @@
-name: Build OpenWrt Packages
+name: Build luci-app-wechatpush-master
 
 on:
   push:

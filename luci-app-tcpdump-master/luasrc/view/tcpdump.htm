@@ -1,262 +1,89 @@
 <%#
 LuCI - Lua Configuration Interface
-Perfect PC Theme Adaption (Fixing Dropdown Windows)
+Stable UI - Capture Limit Field Changed to Text Input
 -%>
 <%+header%>
 
-<style>
-	/* ==========================================================================
-	   【变色龙自适应升级版】完美解决 PC 端浏览器下拉框（Option）白底白字问题
-	   ========================================================================== */
-
-	/* 1. 外部大卡片：完美融入原生卡片层 */
-	.tcp-card {
-		background: var(--cbi-body-bg, transparent) !important;
-		border: 1px solid var(--border, rgba(128, 128, 128, 0.15)) !important;
-		border-radius: 8px !important;
-		padding: 20px !important;
-		margin-bottom: 25px !important;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
-		color: inherit !important;
-	}
-
-	.tcp-title {
-		font-size: 1.1rem !important;
-		font-weight: 600 !important;
-		color: var(--primary, #3182ce) !important;
-		margin-bottom: 15px !important;
-		border-left: 4px solid var(--primary, #3182ce) !important;
-		padding-left: 10px !important;
-	}
-
-	/* 网格布局 */
-	.tcp-grid {
-		display: grid !important;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
-		gap: 15px !important;
-		align-items: end !important;
-	}
-
-	.tcp-field {
-		display: flex !important;
-		flex-direction: column !important;
-		gap: 6px !important;
-	}
-
-	.tcp-field label {
-		font-size: 0.85rem !important;
-		font-weight: 500 !important;
-		color: inherit !important;
-		opacity: 0.7 !important;
-		background: transparent !important;
-	}
-
-	/* 2. 【核心修复】输入框/选择框主体 */
-	.tcp-input, .tcp-select {
-		width: 100% !important;
-		height: 38px !important;
-		padding: 6px 12px !important;
-		border: 1px solid var(--border, rgba(128, 128, 128, 0.25)) !important;
-		background-color: var(--form-bg, rgba(128, 128, 128, 0.05)) !important; 
-		color: inherit !important;
-		border-radius: 6px !important;
-		font-size: 0.9rem !important;
-		box-sizing: border-box !important;
-		display: block !important;
-	}
-
-	.tcp-input:focus, .tcp-select:focus {
-		border-color: var(--primary, #3182ce) !important;
-		outline: none !important;
-		background-color: var(--form-bg, rgba(128, 128, 128, 0.1)) !important;
-	}
-
-	/* 3. 【核心针对性修复】彻底解决 PC 端下拉弹窗选项（Option）黑夜里看不清的问题 */
-	.tcp-select option {
-		/* 白天模式默认兜底色彩 */
-		background-color: #ffffff !important;
-		color: #333333 !important;
-		padding: 10px !important;
-	}
-
-	/* 当网页被渲染为夜间模式（或存在 dark 相关的类）时，强行重写 PC 端下拉菜单弹窗的配色 */
-	@media (prefers-color-scheme: dark) {
-		.tcp-select option {
-			background-color: #2d3748 !important; /* 深灰色背景 */
-			color: #ffffff !important;           /* 纯白文字 */
-		}
-	}
-	/* 兼容 Argon 等主题通过在外层添加 .dark 或 .dark-theme 切换的夜间模式 */
-	html.dark .tcp-select option,
-	body.dark .tcp-select option,
-	html[data-theme='dark'] .tcp-select option {
-		background-color: #2d3748 !important; 
-		color: #ffffff !important;
-	}
-
-	/* 4. 按钮组件 */
-	.tcp-btn {
-		height: 38px !important;
-		padding: 0 16px !important;
-		border: none !important;
-		border-radius: 6px !important;
-		font-weight: 500 !important;
-		cursor: pointer !important;
-		transition: background 0.2s ease !important;
-		display: inline-flex !important;
-		align-items: center !important;
-		justify-content: center !important;
-		font-size: 0.9rem !important;
-	}
-	.tcp-btn-primary { background: var(--primary, #3182ce) !important; color: #ffffff !important; }
-	.tcp-btn-danger { background: var(--danger, #e53e3e) !important; color: #ffffff !important; }
-	.tcp-btn:disabled { opacity: 0.5 !important; cursor: not-allowed !important; }
-
-	/* 状态标签 */
-	.tcp-status-box {
-		padding: 5px 12px !important;
-		border-radius: 6px !important;
-		font-weight: 600 !important;
-		font-size: 0.85rem !important;
-		display: inline-block !important;
-		margin-bottom: 5px !important;
-	}
-	.status-active { background: rgba(56, 161, 105, 0.2) !important; color: #38a169 !important; }
-	.status-inactive { background: rgba(128, 128, 128, 0.2) !important; color: inherit !important; }
-
-	/* 控制台输出框 */
-	.tcp-log-pre {
-		background: rgba(128, 128, 128, 0.08) !important;
-		color: inherit !important;
-		border: 1px solid var(--border, rgba(128, 128, 128, 0.2)) !important;
-		padding: 15px !important;
-		border-radius: 6px !important;
-		max-height: 250px !important;
-		overflow-y: auto !important;
-		font-family: monospace !important;
-		font-size: 0.85rem !important;
-		margin: 10px 0 0 0 !important;
-		white-space: pre-wrap !important;
-		line-height: 1.5 !important;
-	}
-
-	/* 现代化自适应表格 */
-	.tcp-table {
-		width: 100% !important;
-		border-collapse: collapse !important;
-		margin-top: 10px !important;
-		background: transparent !important;
-	}
-	.tcp-table th {
-		background: rgba(128, 128, 128, 0.05) !important;
-		color: inherit !important;
-		opacity: 0.8;
-		font-weight: 600 !important;
-		text-align: left !important;
-		padding: 12px !important;
-		font-size: 0.85rem !important;
-		border-bottom: 2px solid var(--border, rgba(128, 128, 128, 0.15)) !important;
-	}
-	.tcp-table td {
-		padding: 12px !important;
-		border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.15)) !important;
-		color: inherit !important;
-	}
-	
-	.tcp-table tr {
-		background: transparent !important;
-	}
-	.tcp-table tr:hover td {
-		background: rgba(128, 128, 128, 0.08) !important;
-	}
-	
-	.tcp-table tr.tcp-summary-row, .tcp-table tr.tcp-summary-row td {
-		background: rgba(128, 128, 128, 0.06) !important;
-	}
-
-	.action-group {
-		display: flex !important;
-		gap: 6px !important;
-		flex-wrap: wrap !important;
-	}
-	.btn-sm {
-		height: 28px !important;
-		padding: 0 12px !important;
-		font-size: 0.8rem !important;
-		border-radius: 4px !important;
-	}
-</style>
-
 <!-- 窗口 1：Tcpdump 流量监控 -->
-<div class="tcp-card">
-	<div class="tcp-title"><%:Start network capture%></div>
-	<div class="tcp-grid">
-		<div class="tcp-field">
-			<label for="cap_ifname"><%:Interface%></label>
-			<select class="tcp-select" id="cap_ifname">
-				<%
-				local nixio = require "nixio"
-				for k, v in ipairs(nixio.getifaddrs()) do
-					if v.family == "packet" then
-				%>
-				<option value="<%=v.name%>"><%=v.name%></option>
-				<%
+<div class="cbi-section" id="cbi-tcpdump-settings">
+	<legend><%:Start network capture%></legend>
+	
+	<div class="cbi-section-node">
+		<div class="cbi-value" style="display: inline-block; padding: 10px; min-width: 200px; border: none;">
+			<label class="cbi-value-title" for="cap_ifname" style="float: none; width: auto; text-align: left; margin-bottom: 5px;"><%:Interface%></label>
+			<div class="cbi-value-field">
+				<select class="cbi-input-select" id="cap_ifname" style="width: 100%;">
+					<%
+					local nixio = require "nixio"
+					for k, v in ipairs(nixio.getifaddrs()) do
+						if v.family == "packet" then
+					%>
+					<option value="<%=v.name%>"><%=v.name%></option>
+					<%
+						end
 					end
-				end
-				%>
-				<option value="any"><%:any%></option>
-			</select>
+					%>
+					<option value="any"><%:any%></option>
+				</select>
+			</div>
 		</div>
 
-		<div class="tcp-field">
-			<label for="cap_stop_value"><%:Capture limit%></label>
-			<div style="display: flex; gap: 4px; width: 100%;">
-				<input class="tcp-input" id="cap_stop_value" type="number" min="0" value="0" style="flex: 2;" />
-				<select class="tcp-select" id="cap_stop_unit" style="flex: 1;">
+		<div class="cbi-value" style="display: inline-block; padding: 10px; min-width: 220px; border: none;">
+			<label class="cbi-value-title" for="cap_stop_value" style="float: none; width: auto; text-align: left; margin-bottom: 5px;"><%:Capture limit%></label>
+			<div class="cbi-value-field" style="display: flex; gap: 4px;">
+				<!-- 这里已经改成了 type="text" 并增加了纯数字输入限制，去掉了上下箭头，完全支持手动输入和粘贴 -->
+				<input class="cbi-input-text" id="cap_stop_value" type="text" value="0" oninput="this.value=this.value.replace(/\D/g,'')" style="flex: 2; width: auto;" />
+				<select class="cbi-input-select" id="cap_stop_unit" style="flex: 1;">
 					<option value="T"><%:seconds%></option>
 					<option value="P"><%:packets%></option>
 				</select>
 			</div>
 		</div>
 
-		<div class="tcp-field">
-			<label for="cap_filter"><%:Filter%> (BPF)</label>
-			<input class="tcp-input" type="text" placeholder="e.g. tcp port 80" id="cap_filter" />
+		<div class="cbi-value" style="display: inline-block; padding: 10px; min-width: 250px; border: none;">
+			<label class="cbi-value-title" for="cap_filter" style="float: none; width: auto; text-align: left; margin-bottom: 5px;"><%:Filter%> (BPF)</label>
+			<div class="cbi-value-field">
+				<input class="cbi-input-text" type="text" placeholder="e.g. tcp port 80" id="cap_filter" style="width: 100%;" />
+			</div>
 		</div>
 
-		<div class="tcp-field">
-			<button type="button" id="bt_capture" class="tcp-btn tcp-btn-primary" style="width: 100%;" disabled><%:Loading...%></button>
+		<div class="cbi-value" style="display: inline-block; padding: 10px; min-width: 150px; border: none; vertical-align: bottom;">
+			<div class="cbi-value-field">
+				<button type="button" id="bt_capture" class="cbi-button cbi-button-apply" style="width: 100%; height: 32px;" disabled><%:Loading...%></button>
+			</div>
 		</div>
 	</div>
 </div>
 
 <!-- 窗口 2：Console Output 控制台输出 -->
-<div class="tcp-card">
-	<div class="tcp-title"><%:Console Output%></div>
-	<div>
-		<div id="tcpdump-status" class="tcp-status-box status-inactive">Checking...</div>
-	</div>
-	<div id="tcpdump-message" style="font-weight: 500; margin-top: 5px; font-family: monospace; color: inherit;"></div>
-	<div id="tcpdump-log-container" style="display: none; margin-top: 10px;">
-		<pre id="tcpdump-log" class="tcp-log-pre"></pre>
+<div class="cbi-section" id="cbi-tcpdump-console">
+	<legend><%:Console Output%></legend>
+	<div class="cbi-section-node" style="padding: 15px;">
+		<div>
+			<div id="tcpdump-status" style="display: inline-block; padding: 5px 12px; border-radius: 4px; font-weight: 600; font-size: 0.9rem;">Checking...</div>
+		</div>
+		<div id="tcpdump-message" style="font-weight: 500; margin-top: 10px; font-family: monospace;"></div>
+		<div id="tcpdump-log-container" style="display: none; margin-top: 10px;">
+			<pre id="tcpdump-log" style="padding: 12px; max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 12px; border-radius: 4px; border: 1px solid rgba(128,128,128,0.15); white-space: pre-wrap; line-height: 1.5;"></pre>
+		</div>
 	</div>
 </div>
 
 <!-- 窗口 3：捕获结果 -->
-<div class="tcp-card">
-	<div class="tcp-title"><%:Capture links%></div>
-	<div style="overflow-x: auto;">
-		<table id="t_list" class="tcp-table">
+<div class="cbi-section" id="cbi-tcpdump-results">
+	<legend><%:Capture links%></legend>
+	<div class="cbi-section-node">
+		<table id="t_list" class="table cbi-section-table">
 			<thead>
-				<tr>
-					<th><%:Capture file%></th>
-					<th><%:Modification date%></th>
-					<th><%:Capture size%></th>
-					<th style="text-align: right;"><%:Actions%></th>
+				<tr class="cbi-section-table-titles">
+					<th class="cbi-section-table-cell"><%:Capture file%></th>
+					<th class="cbi-section-table-cell"><%:Modification date%></th>
+					<th class="cbi-section-table-cell"><%:Capture size%></th>
+					<th class="cbi-section-table-cell" style="text-align: right;"><%:Actions%></th>
 				</tr>
 			</thead>
-			<tbody>
-				<!-- JS Render -->
+			<tbody id="t_list_body">
+				<!-- 动态数据区域 -->
 			</tbody>
 		</table>
 	</div>
@@ -268,18 +95,26 @@ Perfect PC Theme Adaption (Fixing Dropdown Windows)
 	var capture_active = false;
 	var capture_name;
 
+	document.getElementById('bt_capture').onclick = function() {
+		if (!capture_active) {
+			capture_start();
+		} else {
+			capture_stop();
+		}
+	};
+
 	function update_button() {
 		var bt_capture = document.getElementById('bt_capture');
+		if (!bt_capture) return;
+		
 		if (!capture_active) {
 			bt_capture.value = '<%:Start capture%>';
 			bt_capture.innerHTML = '<%:Start capture%>';
-			bt_capture.className = 'tcp-btn tcp-btn-primary';
-			bt_capture.onclick = capture_start;
+			bt_capture.className = 'cbi-button cbi-button-apply';
 		} else {
 			bt_capture.value = '<%:Stop capture%>';
 			bt_capture.innerHTML = '<%:Stop capture%>';
-			bt_capture.className = 'tcp-btn tcp-btn-danger';
-			bt_capture.onclick = capture_stop;
+			bt_capture.className = 'cbi-button cbi-button-reset';
 		}
 		bt_capture.disabled = false;
 	}
@@ -313,106 +148,114 @@ Perfect PC Theme Adaption (Fixing Dropdown Windows)
 	}
 
 	function update_callback(xhr, json) {
-		if (!json) return;
 		update_table(xhr, json);
 		update_status(xhr, json);
 	}
 
 	function update_table(xhr, json) {
-		var table = document.getElementById("t_list");
-		if (!table) return;
+		var tbody = document.getElementById("t_list_body");
+		if (!tbody) return;
 		
-		var tbody = table.getElementsByTagName('tbody')[0] || table;
-		
-		while (tbody.rows.length > 0) {
-			tbody.deleteRow(-1);
+		tbody.innerHTML = "";
+
+		var entries = [];
+		if (json && json.list && json.list.entries) {
+			entries = json.list.entries;
 		}
 
-		if (!xhr || !json || !json.list || !json.list.entries) {
-			var row = tbody.insertRow(-1);
-			var cell = row.insertCell(0);
-			cell.colSpan = 4;
-			cell.innerHTML = '<em style="display:block; padding:10px 0;"><%:Could not retrieve captures.%></em>';
-			return;
-		}
-
-		var entries = json.list.entries;
 		if (entries.length === 0) {
 			var row = tbody.insertRow(-1);
+			row.className = "cbi-section-table-row cbi-rowstyle-1";
 			var cell = row.insertCell(0);
 			cell.colSpan = 4;
-			cell.innerHTML = '<em style="display:block; padding:10px 0;"><%:There are no captures available yet.%></em>';
+			cell.className = "cbi-section-table-cell";
+			cell.style.textAlign = "center";
+			cell.innerHTML = '<em style="display:block; padding:15px 0; opacity:0.6;"><%:There are no captures available yet.%></em>';
 			return;
 		}
 
 		var total_size = 0;
 		for (var i = 0; i < entries.length; i++) {
 			var row = tbody.insertRow(-1);
+			row.className = "cbi-section-table-row cbi-rowstyle-" + ((i % 2) + 1);
 			total_size += entries[i].size;
 			
-			row.insertCell().innerHTML = '<strong>' + entries[i].name + '.pcap</strong>';
-			row.insertCell().innerHTML = human_date(entries[i].mtime);
-			row.insertCell().innerHTML = human_size(entries[i].size);
+			var c1 = row.insertCell(); c1.className = "cbi-section-table-cell"; c1.innerHTML = '<strong>' + entries[i].name + '.pcap</strong>';
+			var c2 = row.insertCell(); c2.className = "cbi-section-table-cell"; c2.innerHTML = human_date(entries[i].mtime);
+			var c3 = row.insertCell(); c3.className = "cbi-section-table-cell"; c3.innerHTML = human_size(entries[i].size);
 			
 			var cell_action = row.insertCell();
+			cell_action.className = "cbi-section-table-cell";
 			cell_action.style.textAlign = "right";
 			
-			var html = '<div class="action-group" style="justify-content: flex-end;">';
-			html += '<button type="button" onclick="capture_get(\'pcap\', \'' + entries[i].name + '\')" class="tcp-btn tcp-btn-primary btn-sm"><%:PCAP%></button>';
-			html += '<button type="button" onclick="capture_get(\'filter\', \'' + entries[i].name + '\')" class="tcp-btn tcp-btn-primary btn-sm" ' + (entries[i].filter ? '' : 'disabled') + '><%:Filter%></button>';
-			html += '<button type="button" onclick="capture_remove(\'' + entries[i].name + '\')" class="tcp-btn tcp-btn-danger btn-sm"><%:Remove%></button>';
+			var html = '<div style="display:flex; gap:4px; justify-content: flex-end;">';
+			html += '<button type="button" onclick="capture_get(\'pcap\', \'' + entries[i].name + '\')" class="cbi-button cbi-button-apply"><%:PCAP%></button>';
+			html += '<button type="button" onclick="capture_get(\'filter\', \'' + entries[i].name + '\')" class="cbi-button cbi-button-apply" ' + (entries[i].filter ? '' : 'disabled') + '><%:Filter%></button>';
+			html += '<button type="button" onclick="capture_remove(\'' + entries[i].name + '\')" class="cbi-button cbi-button-remove"><%:Remove%></button>';
 			html += '</div>';
 			cell_action.innerHTML = html;
 		}
 
 		var footer_row = tbody.insertRow(-1);
-		footer_row.className = "tcp-summary-row";
-		footer_row.insertCell().innerHTML = '<b><%:All files%></b>';
-		footer_row.insertCell();
-		footer_row.insertCell().innerHTML = '<b>' + human_size(total_size) + '</b>';
+		footer_row.className = "cbi-section-table-row cbi-rowstyle-1";
+		
+		var fc1 = footer_row.insertCell(); fc1.className = "cbi-section-table-cell"; fc1.innerHTML = '<b><%:All files%></b>';
+		var fc2 = footer_row.insertCell(); fc2.className = "cbi-section-table-cell";
+		var fc3 = footer_row.insertCell(); fc3.className = "cbi-section-table-cell"; fc3.innerHTML = '<b>' + human_size(total_size) + '</b>';
 		
 		var footer_action = footer_row.insertCell();
+		footer_action.className = "cbi-section-table-cell";
 		footer_action.style.textAlign = "right";
-		var f_html = '<div class="action-group" style="justify-content: flex-end;">';
-		f_html += '<button type="button" onclick="capture_get(\'all\')" class="tcp-btn tcp-btn-primary btn-sm">📦 <%:Download All%></button>';
-		f_html += '<button type="button" onclick="capture_remove(\'all\')" class="tcp-btn tcp-btn-danger btn-sm"><%:Remove All%></button>';
+		var f_html = '<div style="display:flex; gap:4px; justify-content: flex-end;">';
+		f_html += '<button type="button" onclick="capture_get(\'all\')" class="cbi-button cbi-button-apply">📦 <%:Download All%></button>';
+		f_html += '<button type="button" onclick="capture_remove(\'all\')" class="cbi-button cbi-button-remove"><%:Remove All%></button>';
 		f_html += '</div>';
 		footer_action.innerHTML = f_html;
 	}
 
 	function update_status(xhr, json) {
-		capture_active = json.capture.active;
-		capture_name = json.capture.cap_name;
+		if (json && json.capture) {
+			capture_active = json.capture.active;
+			capture_name = json.capture.cap_name;
+		}
 		
 		var status_box = document.getElementById("tcpdump-status");
-		if (capture_active) {
-			status_box.innerHTML = "● <%:RUNNING%>";
-			status_box.className = "tcp-status-box status-active";
-		} else {
-			status_box.innerHTML = "■ <%:STOPPED%>";
-			status_box.className = "tcp-status-box status-inactive";
+		if (status_box) {
+			if (capture_active) {
+				status_box.innerHTML = "● <%:RUNNING%>";
+				status_box.style.backgroundColor = "rgba(56, 161, 105, 0.2)";
+				status_box.style.color = "#38a169";
+			} else {
+				status_box.innerHTML = "■ <%:STOPPED%>";
+				status_box.style.backgroundColor = "rgba(128, 128, 128, 0.2)";
+				status_box.style.color = "inherit";
+			}
 		}
 
 		var msg_box = document.getElementById("tcpdump-message");
-		var msg = "";
-		if (json.cmd && json.cmd.hasOwnProperty("msg")) {
-			for (var i = 0; i < json.cmd.msg.length; i++) {
-				msg += json.cmd.msg[i] + "\n";
+		if (msg_box) {
+			var msg = "";
+			if (json && json.cmd && json.cmd.hasOwnProperty("msg")) {
+				for (var i = 0; i < json.cmd.msg.length; i++) {
+					msg += json.cmd.msg[i] + "\n";
+				}
+			} else if (json && json.capture) {
+				msg = json.capture.msg || "";
 			}
-		} else {
-			msg = json.capture.msg || "";
+			msg_box.innerHTML = msg;
 		}
-		msg_box.innerHTML = msg;
 
 		var log_container = document.getElementById("tcpdump-log-container");
 		var log_box = document.getElementById("tcpdump-log");
-		if (capture_active && json.capture.log) {
-			log_container.style.display = "block";
-			log_box.innerHTML = json.capture.log;
-			log_box.scrollTop = log_box.scrollHeight;
-		} else {
-			log_container.style.display = "none";
-			log_box.innerHTML = "";
+		if (log_container && log_box) {
+			if (capture_active && json && json.capture && json.capture.log) {
+				log_container.style.display = "block";
+				log_box.innerHTML = json.capture.log;
+				log_box.scrollTop = log_box.scrollHeight;
+			} else {
+				log_container.style.display = "none";
+				log_box.innerHTML = "";
+			}
 		}
 		update_button();
 	}

@@ -1,0 +1,105 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-onliner-overview\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Online Clients"
+msgstr "在线客户端"
+
+#: root/usr/share/luci/menu.d/luci-app-onliner-overview.json:3
+msgid "Online Users"
+msgstr "在线用户"
+
+#: root/usr/share/rpcd/acl.d/luci-app-onliner-overview.json:3
+msgid "Grant access to online clients overview widget"
+msgstr "授予在线用户概览页面的访问权限"
+
+msgid "Online User Overview"
+msgstr "在线用户概览"
+
+msgid "Real-time display of currently connected wired and wireless clients."
+msgstr "实时显示当前连接的有线和无线客户端。"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
+msgid "Hostname"
+msgstr "主机名"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
+msgid "IP Address"
+msgstr "IP 地址"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
+msgid "MAC address"
+msgstr "MAC 地址"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
+msgid "Interface"
+msgstr "接口"
+
+msgid "Network / Signal"
+msgstr "网络 / 信号"
+
+msgid "Wired"
+msgstr "有线连接"
+
+# 左侧物理类型 Tab 翻译
+msgid "All Clients"
+msgstr "全部设备"
+
+msgid "Wireless"
+msgstr "无线设备"
+
+# 右侧复选框过滤行（IP 协议层）
+msgid "IP Filters"
+msgstr "IP 协议过滤"
+
+msgid "Filter fe80"
+msgstr "过滤 fe80 地址"
+
+msgid "IPv4 Only"
+msgstr "纯 IPv4"
+
+msgid "IPv6 Only"
+msgstr "纯 IPv6"
+
+# 新增：邻居状态过滤行（链路/ARP/状态层）
+msgid "Status Filters"
+msgstr "设备状态过滤"
+
+msgid "Filter FAILED"
+msgstr "过滤失效/离线(FAILED)"
+
+msgid "Filter STALE"
+msgstr "过滤陈旧/休眠(STALE)"
+
+msgid "REACHABLE Only"
+msgstr "只看活跃在线(REACHABLE)"
+
+# 搜索框与动作按钮翻译
+msgid "Search"
+msgstr "搜索"
+
+msgid "Search Hostname, IP, MAC..."
+msgstr "搜索主机名、IP、MAC..."
+
+msgid "Force Refresh"
+msgstr "强制刷新"
+
+# MAC 悬停提示翻译
+msgid "Click to query MAC vendor in a new window"
+msgstr "点击在新窗口中查询该 MAC 的厂商信息"
+
+#: htdocs/luci-static/resources/view/onliner-overview/overview.js
+msgid "No online users"
+msgstr "当前没有在线用户"
+
+msgid "No matching online users"
+msgstr "没有满足当前过滤条件的设备"
+
+msgid "Expires In"
+msgstr "租期剩余"

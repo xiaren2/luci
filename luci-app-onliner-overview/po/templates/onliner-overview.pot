@@ -1,0 +1,30 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: package/custom/luci-app-onliner-overview/root/usr/share/rpcd/acl.d/luci-app-onliner-overview.json:3
+msgid "Grant access to online clients overview widget"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:15
+msgid "Hostname"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:16
+msgid "IP Address"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:18
+msgid "Interface"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:17
+msgid "MAC address"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:27
+msgid "No online users"
+msgstr ""
+
+#: package/custom/luci-app-onliner-overview/htdocs/luci-static/resources/view/status/include/31_onliner_overview.js:57
+msgid "Online User"
+msgstr ""

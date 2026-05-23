@@ -1,0 +1,19 @@
+{
+	"luci-app-onliner-overview": {
+		"description": "Grant access to online clients overview page",
+		"read": {
+			"ubus": {
+				"luci.onliner": [
+					"getOnlineUsers",
+					"getOnlineUserlist"
+				]
+			},
+			"uci": [
+				"luci"
+			],
+			"menu": [
+				"admin/status/onliner-overview"
+			]
+		}
+	}
+}

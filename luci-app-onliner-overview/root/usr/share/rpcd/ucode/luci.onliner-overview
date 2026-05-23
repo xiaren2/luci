@@ -1,0 +1,218 @@
+'use strict';
+
+import { readfile, popen } from 'fs';
+
+function read_text(path) {
+	let data = readfile(path);
+	return (data == null) ? '' : data;
+}
+
+function get_lines(text) {
+	text = trim(text || '');
+	return text ? split(text, '\n') : [];
+}
+
+function norm_mac(mac) {
+	if (!mac) return '';
+	let m = lc(trim(mac));
+	if (m == 'null' || m == 'none' || m == '-' || m == '00:00:00:00:00:00') {
+		return '';
+	}
+	return m;
+}
+
+function split_ws(line) {
+	return split(trim(line), /[ \t]+/);
+}
+
+// 1. 先把所有有租约的设备作为“基础在线骨架”
+function load_dhcp_leases() {
+	let leases = {};
+	let text = read_text('/tmp/dhcp.leases');
+	let lns = get_lines(text);
+	let now = time(); 
+
+	for (let i = 0; i < length(lns); i++) {
+		let p = split_ws(lns[i]);
+		if (length(p) >= 4) {
+			let ts = int(p[0]); 
+			let mac = norm_mac(p[1]);
+			if (!mac) continue;
+			
+			let hostname = p[3];
+			if (hostname == '*' || hostname == '-' || lc(hostname) == 'null') {
+				hostname = '?';
+			}
+			
+			let rem = ts - now;
+			if (rem < 0) rem = 0;
+
+			// 预设基础结构，默认状态先给个 "STALE" 或 "UNKNOWN"，等后续邻居表精准覆盖
+			leases[mac] = { 
+				hostname: hostname, 
+				ipaddr: p[2] + '[STALE]', // 基础 IPv4 默认认为 STALE
+				macaddr: mac,
+				device: '-', 
+				expires: rem 
+			};
+		}
+	}
+	return leases;
+}
+
+function get_userlist() {
+	// 以租约表作为核心容器
+	let users = load_dhcp_leases();
+	
+	// 2. 读取系统邻居表，用来刷新状态和补充 IPv6
+	let fd = popen("ip neigh show 2>/dev/null");
+	if (fd) {
+		let text = fd.read('all');
+		fd.close();
+		let lns = get_lines(text);
+		
+		for (let n = 0; n < length(lns); n++) {
+			let p = split_ws(lns[n]);
+			if (length(p) < 4) continue;
+
+			let ip = p[0];
+			if (!ip || ip == 'null') continue;
+
+			let status = p[length(p) - 1]; 
+			let dev = '';
+			let mac = '';
+
+			for (let i = 1; i < length(p); i++) {
+				if (p[i] == 'dev' && i + 1 < length(p)) dev = p[i + 1];
+				if (p[i] == 'lladdr' && i + 1 < length(p)) mac = norm_mac(p[i + 1]);
+			}
+
+			// 【核心改变】：如果内核清空了 lladdr，但我们在历史 IP 反查里能对上，就把 MAC 捞回来
+			if (!mac) {
+				for (let m in users) {
+					if (index(users[m].ipaddr, ip) >= 0) {
+						mac = m;
+						break;
+					}
+				}
+			}
+
+			if (!mac) continue;
+
+			let ip_with_status = ip + '[' + status + ']';
+
+			if (!users[mac]) {
+				// 新发现的独立设备 (如未向路由器申请 DHCPv4 的纯 IPv6 设备)
+				users[mac] = {
+					hostname: '?',
+					ipaddr: ip_with_status,
+					macaddr: mac,
+					device: dev,
+					expires: '-'
+				};
+			} else {
+				// 已有 DHCP 记录的设备：
+				if (index(users[mac].ipaddr, ip) >= 0) {
+					// 如果原本的租约 IP 匹配上了，更新其带状态的标记
+					// 比如把原先预设的 "192.168.1.10[STALE]" 替换成实时的 "192.168.1.10[REACHABLE]" 或 [FAILED]
+					users[mac].ipaddr = ip_with_status; 
+				} else {
+					// 如果是新发现的次要 IP (如 IPv6 地址)，拼接到后面
+					users[mac].ipaddr = users[mac].ipaddr + '/' + ip_with_status;
+				}
+				if (dev) users[mac].device = dev;
+			}
+		}
+	}
+
+	// 3. 补充无线客户端状态
+	let fd_dev = popen("iwinfo 2>/dev/null | grep -E '^[a-zA-Z0-9._-]+'");
+	if (fd_dev) {
+		let dev_text = fd_dev.read('all');
+		fd_dev.close();
+		let dev_lines = get_lines(dev_text);
+		
+		for (let i = 0; i < length(dev_lines); i++) {
+			let p = split_ws(dev_lines[i]);
+			if (length(p) < 2) continue;
+			
+			let dev = p[0];
+			let ssid = '';
+			let essid_idx = index(dev_lines[i], 'ESSID: "');
+			if (essid_idx >= 0) {
+				let sub = substr(dev_lines[i], essid_idx + 8);
+				let end_idx = index(sub, '"');
+				if (end_idx >= 0) ssid = substr(sub, 0, end_idx);
+			}
+			if (ssid == 'unknown' || lc(ssid) == 'null') ssid = '';
+
+			let fd_assoc = popen(sprintf("iwinfo %s assoclist 2>/dev/null", dev));
+			if (fd_assoc) {
+				let assoc_text = fd_assoc.read('all');
+				fd_assoc.close();
+				let assoc_lines = get_lines(assoc_text);
+				
+				for (let j = 0; j < length(assoc_lines); j++) {
+					let ap = split_ws(assoc_lines[j]);
+					if (length(ap) >= 4 && match(ap[0], /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/)) {
+						let mac = norm_mac(ap[0]);
+						if (!mac) continue;
+						
+						let signal = '0';
+						let sig_idx = index(assoc_lines[j], 'dBm');
+						if (sig_idx >= 0) {
+							let sub_sig = substr(assoc_lines[j], 0, sig_idx);
+							let sig_p = split_ws(sub_sig);
+							signal = sig_p[length(sig_p) - 1];
+						}
+						
+						if (users[mac]) {
+							users[mac].is_wifi = true;
+							users[mac].signal = signal;
+							users[mac].ssid = ssid ? ssid : 'Wi-Fi';
+							// 既然无线依然紧密关联，如果邻居表里显示为 FAILED 往往是错判，可以修正为 REACHABLE
+							if (index(users[mac].ipaddr, '[FAILED]') >= 0) {
+								users[mac].ipaddr = replace(users[mac].ipaddr, '[FAILED]', '[REACHABLE]');
+							}
+						} else {
+							users[mac] = {
+								hostname: '?', ipaddr: '-[REACHABLE]', macaddr: mac, device: 'WLAN',
+								is_wifi: true, signal: signal, ssid: ssid ? ssid : 'Wi-Fi',
+								expires: '-'
+							};
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 4. 清洗并输出
+	let rv = [];
+	for (let mac in users) {
+		if (mac && mac != '') {
+			// 如果这个设备在邻居表和无线表里都彻底没音讯了，内核也没留状态，那它的状态就判定为 [FAILED] (离线)
+			if (index(users[mac].ipaddr, '[') < 0 && users[mac].ipaddr != '-') {
+				users[mac].ipaddr = users[mac].ipaddr + '[FAILED]';
+			}
+			push(rv, users[mac]);
+		}
+	}
+	return rv;
+}
+
+return {
+	'luci.onliner': {
+		getOnlineUsers: {
+			call: function() {
+				let userlist = get_userlist();
+				return { onlineusers: sprintf('%d', length(userlist)) };
+			}
+		},
+		getOnlineUserlist: {
+			call: function() {
+				return { userlist: get_userlist() };
+			}
+		}
+	}
+};

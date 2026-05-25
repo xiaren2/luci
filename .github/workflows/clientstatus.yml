@@ -69,6 +69,8 @@ jobs:
           shopt -s globstar
           mkdir -p packages-staging/${{ matrix.name }}
           find openwrt-sdk/bin/packages -type f \( \
+           -name "clientstatus*.ipk" -o \
+            -name "clientstatus*.apk" -o \
               -name "luci-app-clientstatus*.ipk" -o \
               -name "luci-i18n-clientstatus*.ipk" -o\
               -name "luci-app-clientstatus*.apk" -o \

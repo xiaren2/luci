@@ -1,0 +1,33 @@
+{
+    "luci-app-cloud-clipboard": {
+        "description": "Grant access to cloud clipboard settings",
+        "read": {
+            "uci": ["cloud-clipboard"],
+            "file": {
+                "/etc/config/cloud-clipboard": ["read"],
+                "/var/log/cloud-clipboard.log": ["read"],
+                "/etc/init.d/cloud-clipboard": ["exec"],
+                "/usr/bin/cloud-clipboard": ["exec"],
+                "/bin/busybox": ["exec"],
+                "/usr/bin/pgrep": ["exec"]
+            }
+        },
+        "write": {
+            "uci": ["cloud-clipboard"],
+            "file": {
+                "/etc/config/cloud-clipboard": ["write"],
+                "/var/log/cloud-clipboard.log": ["write", "truncate"],
+                "/etc/init.d/cloud-clipboard": ["exec"],
+                "/usr/bin/cloud-clipboard": ["exec"]
+            }
+        },
+        "execute": {
+            "file": {
+                "/usr/bin/cloud-clipboard": ["exec"],
+                "/etc/init.d/cloud-clipboard": ["exec"],
+                "/bin/busybox": ["exec"],
+                "/usr/bin/pgrep": ["exec"]
+            }
+        }
+    }
+}

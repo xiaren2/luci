@@ -1,0 +1,10 @@
+/target
+/.cargo-home
+/.rustup
+/.tmp
+/output/
+/.playwright-cli/
+node_modules
+.omo/
+.sisyphus/
+.codex/

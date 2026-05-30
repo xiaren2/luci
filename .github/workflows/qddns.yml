@@ -16,11 +16,11 @@ jobs:
           - name: "qualcommax-ipq60xx-snapshot"
             sdk_url: "https://mirror-03.infra.openwrt.org/snapshots/targets/qualcommax/ipq60xx/openwrt-sdk-qualcommax-ipq60xx_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
             extract_cmd: "tar -I zstd -xf"
-            rust_target: "aarch64-unknown-linux-musl"  # 对应 ipq60xx 架构
+            rust_target: "aarch64-unknown-linux-musl"
           - name: "mediatek-filogic-23.05.0"
             sdk_url: "https://downloads.openwrt.org/releases/23.05.0/targets/mediatek/filogic/openwrt-sdk-23.05.0-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
             extract_cmd: "tar -xJf"
-            rust_target: "aarch64-unknown-linux-musl"  # 对应 filogic 架构
+            rust_target: "aarch64-unknown-linux-musl"
 
     name: Build luci-app-qddns (${{ matrix.name }})
 
@@ -38,9 +38,10 @@ jobs:
             libncurses5-dev libncursesw5-dev libssl-dev python3 python3-pip \
             python3-setuptools rsync unzip wget zlib1g-dev xz-utils zstd
 
-      # 为系统的 Rust 添加对应的交叉编译链组件，省去 SDK 原地编译的麻烦
-      - name: Install Rust target
+      # 核心修复点：初始化系统 Rust 工具链环境，防止 rustup 找不到默认配置
+      - name: Initialize Rust Environment
         run: |
+          rustup default stable
           rustup target add ${{ matrix.rust_target }}
 
       - name: Download and Extract OpenWrt SDK
@@ -69,11 +70,12 @@ jobs:
           ./scripts/feeds install -a
           make defconfig
           
-          # 传入外部编译器的环境变量和工具链路径
-          export CARGO_HOME="/usr/share/rust/.cargo"
-          export RUSTUP_HOME="/usr/share/rust/.rustup"
+          # 清理可能导致冲突的硬编码目录变量，交由全局管理
+          unset CARGO_HOME
+          unset RUSTUP_HOME
           
-          make package/luci-app-qddns/compile V=s CONFIG_AUTOREBUILD=y
+          # 把标准的构建目标通过参数透传进去
+          make package/luci-app-qddns/compile V=s CONFIG_AUTOREBUILD=y TARGET_CROSS=${{ matrix.rust_target }}-
 
       - name: Copy packages to staging
         shell: bash

@@ -13,76 +13,42 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: "qualcommax-ipq60xx-snapshot"
-            sdk_url: "https://mirror-03.infra.openwrt.org/snapshots/targets/qualcommax/ipq60xx/openwrt-sdk-qualcommax-ipq60xx_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-            extract_cmd: "tar -I zstd -xf"
-            rust_target: "aarch64-unknown-linux-musl"
+          - name: "qualcommax-ipq60xx"
+            arch: "qualcommax-ipq60xx"
+            tag: "snapshot"  # 使用官方最新的 snapshot SDK 容器
           - name: "mediatek-filogic-23.05.0"
-            sdk_url: "https://downloads.openwrt.org/releases/23.05.0/targets/mediatek/filogic/openwrt-sdk-23.05.0-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-            extract_cmd: "tar -xJf"
-            rust_target: "aarch64-unknown-linux-musl"
+            arch: "mediatek-filogic"
+            tag: "23.05.0"   # 使用纯净的 23.05.0 SDK 容器
 
     name: Build luci-app-qddns (${{ matrix.name }})
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential ccache fastjar file g++ gawk gettext git libelf-dev \
-            libncurses5-dev libncursesw5-dev libssl-dev python3 python3-pip \
-            python3-setuptools rsync unzip wget zlib1g-dev xz-utils zstd
-
-      # 核心修复点：初始化系统 Rust 工具链环境，防止 rustup 找不到默认配置
-      - name: Initialize Rust Environment
+      # 核心修复点：初始化系统级原生 Rust 工具链，给后面的 cargo 交叉编译备用
+      - name: Initialize System Rust Environment
         run: |
           rustup default stable
-          rustup target add ${{ matrix.rust_target }}
+          rustup target add aarch64-unknown-linux-musl
 
-      - name: Download and Extract OpenWrt SDK
-        run: |
-          wget ${{ matrix.sdk_url }} -O sdk-archive
-          mkdir openwrt-sdk-tmp
-          ${{ matrix.extract_cmd }} sdk-archive -C openwrt-sdk-tmp
-          mv openwrt-sdk-tmp/* openwrt-sdk
-          rm -rf openwrt-sdk-tmp sdk-archive
-
-      - name: Prepare package
-        run: |
-          mkdir -p openwrt-sdk/package/luci-app-qddns
-          rsync -av --delete \
-            --exclude 'openwrt-sdk' \
-            --exclude '.git' \
-            --exclude 'bin' \
-            --exclude '.github' \
-            --exclude '*.tar.*' \
-            . openwrt-sdk/package/luci-app-qddns/
-
-      - name: Build package
-        working-directory: openwrt-sdk
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
-          
-          # 清理可能导致冲突的硬编码目录变量，交由全局管理
-          unset CARGO_HOME
-          unset RUSTUP_HOME
-          
-          # 把标准的构建目标通过参数透传进去
-          make package/luci-app-qddns/compile V=s CONFIG_AUTOREBUILD=y TARGET_CROSS=${{ matrix.rust_target }}-
+      # 降维打击：直接调用官方/主流 SDK Action
+      # 它会自己搞定容器、依赖隔离，绝不会去原地编译或者污染 libnl-tiny 等系统库
+      - name: Build Packages using gh-action-sdk
+        uses: openwrt/gh-action-sdk@v7
+        env:
+          ARCH: ${{ matrix.arch }}-${{ matrix.tag }}
+          FEEDNAME: luci_app_qddns
+          # 告诉 SDK，我们的系统环境里有 cargo 交叉编译链，编译时直接用它
+          TARGET_CROSS: aarch64-unknown-linux-musl-
 
       - name: Copy packages to staging
         shell: bash
         run: |
           shopt -s globstar
           mkdir -p packages-staging/${{ matrix.name }}
-          find openwrt-sdk/bin/ -type f \( \
+          # gh-action-sdk 编译出来的产物统一会放在 bin/packages/ 架构目录下
+          find bin/packages/ -type f \( \
             -name "qddns*.ipk" -o \
             -name "qddns*.apk" -o \
             -name "luci-app-qddns*.ipk" -o \

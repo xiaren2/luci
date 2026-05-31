@@ -26,7 +26,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 使用官方纯净容器编译
+      # 1. 宿主机有完整的网络和权限，在这里直接把 Rust 给交叉编译了
+      - name: Pre-compile Rust Binaries on Host
+        run: |
+          rustup default stable
+          rustup target add aarch64-unknown-linux-musl
+          
+          cd qddns
+          cargo build --release --target=aarch64-unknown-linux-musl
+          
+          # 把编译好的产物挪到一个临时目录，防止被当成普通的源码目录
+          mkdir -p ../prebuilt-bin
+          cp target/aarch64-unknown-linux-musl/release/qddnsctl ../prebuilt-bin/
+          cp target/aarch64-unknown-linux-musl/release/qddnsd ../prebuilt-bin/
+          
+          # 清理源码防止污染 SDK 容器内部
+          cargo clean
+          cd ..
+
+      # 2. 巧妙把产物伪装进编译树里
+      - name: Inject Prebuilt Binaries
+        run: |
+          mkdir -p net/qddns/bin
+          cp prebuilt-bin/qddnsctl net/qddns/bin/
+          cp prebuilt-bin/qddnsd net/qddns/bin/
+          chmod +x net/qddns/bin/*
+
+      # 3. 呼叫官方 SDK 容器进行纯打包操作
       - name: Build Packages using gh-action-sdk
         uses: openwrt/gh-action-sdk@v7
         env:

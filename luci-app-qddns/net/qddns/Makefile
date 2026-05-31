@@ -9,8 +9,6 @@ PKG_RELEASE:=1
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=OpenAI
 
-PKG_BUILD_PARALLEL:=1
-
 include $(INCLUDE_DIR)/package.mk
 
 define Package/qddns
@@ -26,15 +24,37 @@ define Package/qddns/description
   It supports multiple source types including DHCPv6 DUID/IAID IPv6 lookup.
 endef
 
+# 无需在容器内进行任何多余解压
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
-	$(CP) $(CURDIR)/../../qddns/* $(PKG_BUILD_DIR)/
 endef
 
-# 在容器内部现场安装并执行 cargo 交叉编译，彻底解决环境找不到的问题
+# 核心简化：留空！不需要容器内有任何 Rust、GCC 工具链
 define Build/Compile
-	# 检查并确保容器内部拥有 rust 环境
-	if ! command -v cargo >/dev/null 2>&1; then \
+	# Pre-compiled on host
+endef
+
+define Package/qddns/conffiles
+/etc/config/qddns
+endef
+
+define Package/qddns/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	# 直接拷贝注入进来的 prebuilt 二进制
+	$(INSTALL_BIN) $(CURDIR)/bin/qddnsctl $(1)/usr/bin/qddnsctl
+	$(INSTALL_BIN) $(CURDIR)/bin/qddnsd $(1)/usr/bin/qddnsd
+
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/qddns.init $(1)/etc/init.d/qddns
+
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/qddns.config $(1)/etc/config/qddns
+
+	$(INSTALL_DIR) $(1)/usr/share/qddns
+	$(INSTALL_DATA) ./files/state.example.json $(1)/usr/share/qddns/state.example.json
+endef
+
+$(eval $(call BuildPackage,qddns))	if ! command -v cargo >/dev/null 2>&1; then \
 		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
 		. $(HOME)/.cargo/env; \
 		rustup target add aarch64-unknown-linux-musl; \

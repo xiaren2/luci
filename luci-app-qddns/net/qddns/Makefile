@@ -17,7 +17,6 @@ define Package/qddns
   SECTION:=net
   CATEGORY:=Network
   TITLE:=General-purpose DDNS platform with DUID-aware IPv6 sources
-  # 去掉了原有的 $(RUST_ARCH_DEPENDS)，改为纯净依赖
   DEPENDS:=+procd +ip-full +ucode +ucode-mod-fs +ucode-mod-uci
   URL:=https://example.invalid/qddns
 endef
@@ -32,18 +31,22 @@ define Build/Prepare
 	$(CP) $(CURDIR)/../../qddns/* $(PKG_BUILD_DIR)/
 endef
 
-# 🔥 核心改动：直接借用系统的 cargo 针对目标架构进行交叉编译
+# 在容器内部现场安装并执行 cargo 交叉编译，彻底解决环境找不到的问题
 define Build/Compile
+	# 检查并确保容器内部拥有 rust 环境
+	if ! command -v cargo >/dev/null 2>&1; then \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
+		. $(HOME)/.cargo/env; \
+		rustup target add aarch64-unknown-linux-musl; \
+	else \
+		. $(HOME)/.cargo/env || true; \
+	fi; \
 	cd $(PKG_BUILD_DIR) && \
-	CARGO_HOME=/usr/share/rust/.cargo \
-	RUSTUP_HOME=/usr/share/rust/.rustup \
-	cargo build --release --target=$(TARGET_CROSS:-=)
+	~/.cargo/bin/cargo build --release --target=aarch64-unknown-linux-musl
 	
-	# 创建一个伪造的二进制目录，方便下面的 install 阶段复制
 	mkdir -p $(PKG_BUILD_DIR)/target/release
-	# 将交叉编译出的二进制软链接或复制过去
-	cp $(PKG_BUILD_DIR)/target/$(TARGET_CROSS:-=)/release/qddnsctl $(PKG_BUILD_DIR)/target/release/qddnsctl || true
-	cp $(PKG_BUILD_DIR)/target/$(TARGET_CROSS:-=)/release/qddnsd $(PKG_BUILD_DIR)/target/release/qddnsd || true
+	cp $(PKG_BUILD_DIR)/target/aarch64-unknown-linux-musl/release/qddnsctl $(PKG_BUILD_DIR)/target/release/qddnsctl || true
+	cp $(PKG_BUILD_DIR)/target/aarch64-unknown-linux-musl/release/qddnsd $(PKG_BUILD_DIR)/target/release/qddnsd || true
 endef
 
 define Package/qddns/conffiles

@@ -26,15 +26,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 安装 aarch64-linux-musl-gcc 交叉编译器，供 ring 等含有 C 代码的依赖库使用
-      - name: Install Cross-Compile Toolchain (aarch64-musl)
+      # 直接安装 Ubuntu 官方极其稳定的标准 AArch64 交叉编译器
+      - name: Install Stable GCC Toolchain
         run: |
           sudo apt-get update
-          # 下载预编译好的 musl.cc 工具链（这是最快、最稳妥获取 aarch64-linux-musl-gcc 的方式）
-          mkdir -p $HOME/x-tools
-          curl -sSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzF - -C $HOME/x-tools
-          # 将工具链加入系统环境变量 PATH
-          echo "$HOME/x-tools/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       # 自动寻找 Cargo.toml 并完成交叉编译
       - name: Pre-compile Rust Binaries on Host
@@ -49,12 +45,13 @@ jobs:
             exit 1
           fi
           
-          echo "寻寻找 Rust 项目路径: $CARGO_DIR"
+          echo "寻找到了 Rust 项目路径: $CARGO_DIR"
           cd "$CARGO_DIR"
           
-          # 显式指定环境变量，告诉 cc 库和 ring 应该用哪个 gcc 
-          export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
-          export AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar
+          # 显式指定 aarch64 交叉编译器，并让 RUSTFLAGS 强制全静态链接，完美绕过动态库依赖
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
+          export RUSTFLAGS="-C target-feature=+crt-static"
           
           cargo build --release --target=aarch64-unknown-linux-musl
           

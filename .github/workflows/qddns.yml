@@ -15,10 +15,10 @@ jobs:
         include:
           - name: "qualcommax-ipq60xx"
             arch: "qualcommax-ipq60xx"
-            tag: "snapshot"  # 使用官方最新的 snapshot SDK 容器
+            tag: "snapshot"
           - name: "mediatek-filogic-23.05.0"
             arch: "mediatek-filogic"
-            tag: "23.05.0"   # 使用纯净的 23.05.0 SDK 容器
+            tag: "23.05.0"
 
     name: Build luci-app-qddns (${{ matrix.name }})
 
@@ -26,28 +26,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 核心修复点：初始化系统级原生 Rust 工具链，给后面的 cargo 交叉编译备用
-      - name: Initialize System Rust Environment
-        run: |
-          rustup default stable
-          rustup target add aarch64-unknown-linux-musl
-
-      # 降维打击：直接调用官方/主流 SDK Action
-      # 它会自己搞定容器、依赖隔离，绝不会去原地编译或者污染 libnl-tiny 等系统库
+      # 使用官方纯净容器编译
       - name: Build Packages using gh-action-sdk
         uses: openwrt/gh-action-sdk@v7
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.tag }}
           FEEDNAME: luci_app_qddns
-          # 告诉 SDK，我们的系统环境里有 cargo 交叉编译链，编译时直接用它
-          TARGET_CROSS: aarch64-unknown-linux-musl-
 
       - name: Copy packages to staging
         shell: bash
         run: |
           shopt -s globstar
           mkdir -p packages-staging/${{ matrix.name }}
-          # gh-action-sdk 编译出来的产物统一会放在 bin/packages/ 架构目录下
           find bin/packages/ -type f \( \
             -name "qddns*.ipk" -o \
             -name "qddns*.apk" -o \

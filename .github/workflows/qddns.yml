@@ -26,43 +26,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 直接安装 Ubuntu 官方极其稳定的标准 AArch64 交叉编译器
+      # 安装 AArch64 交叉编译器
       - name: Install Stable GCC Toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      # 自动寻找 Cargo.toml 并完成交叉编译
+      # 编译 Rust 二进制
       - name: Pre-compile Rust Binaries on Host
         run: |
           rustup default stable
           rustup target add aarch64-unknown-linux-musl
           
-          # 智能寻找包含 Cargo.toml 的目录
-          CARGO_DIR=$(find . -name "Cargo.toml" -exec dirname {} \; | head -n 1)
-          if [ -z "$CARGO_DIR" ]; then
-            echo "错误: 未在仓库中找到 Cargo.toml 文件！"
-            exit 1
-          fi
+          # 直接写死进入你的 Rust 源码目录
+          cd luci-app-qddns/qddns
           
-          echo "寻找到了 Rust 项目路径: $CARGO_DIR"
-          cd "$CARGO_DIR"
-          
-          # 显式指定 aarch64 交叉编译器，并让 RUSTFLAGS 强制全静态链接，完美绕过动态库依赖
+          # 显式指定 aarch64 交叉编译器
           export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc
           export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc
           export RUSTFLAGS="-C target-feature=+crt-static"
           
           cargo build --release --target=aarch64-unknown-linux-musl
           
-          # 创建临时目录存放编译好的静态二进制
+          # 使用绝对路径创建临时目录并拷贝产物，防止相对路径混淆
           mkdir -p "$GITHUB_WORKSPACE/prebuilt-bin"
           cp target/aarch64-unknown-linux-musl/release/qddnsctl "$GITHUB_WORKSPACE/prebuilt-bin/"
           cp target/aarch64-unknown-linux-musl/release/qddnsd "$GITHUB_WORKSPACE/prebuilt-bin/"
           
           cargo clean
 
-      # 将预编译好的二进制文件注入到 OpenWrt 编译树中
+      # 将预编译好的二进制文件注入到 OpenWrt 编译树的 net/qddns/bin/ 中
       - name: Inject Prebuilt Binaries
         run: |
           mkdir -p net/qddns/bin

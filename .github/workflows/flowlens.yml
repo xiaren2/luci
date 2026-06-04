@@ -1,0 +1,97 @@
+name: Build luci-app-flowlens Multi-Arch 
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-multi-arch:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "qualcommax-ipq60xx-snapshot"
+            sdk_url: "https://mirror-03.infra.openwrt.org/snapshots/targets/qualcommax/ipq60xx/openwrt-sdk-qualcommax-ipq60xx_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+            extract_cmd: "tar -I zstd -xf"
+          - name: "mediatek-filogic-23.05.0"
+            sdk_url: "https://downloads.openwrt.org/releases/23.05.0/targets/mediatek/filogic/openwrt-sdk-23.05.0-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+            extract_cmd: "tar -xJf"
+
+    name: Build luci-app-flowlens (${{ matrix.name }})
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential ccache fastjar file g++ gawk gettext git libelf-dev \
+            libncurses5-dev libncursesw5-dev libssl-dev python3 python3-pip \
+            python3-setuptools rsync unzip wget zlib1g-dev xz-utils zstd
+
+      - name: Download OpenWrt SDK
+        run: |
+          wget ${{ matrix.sdk_url }} -O sdk-archive
+          ${{ matrix.extract_cmd }} sdk-archive
+          SDK_DIR=$(tar -tf sdk-archive | head -1 | cut -f1 -d"/")
+          mv "$SDK_DIR" openwrt-sdk
+
+      - name: Prepare package
+        run: |
+          mkdir -p openwrt-sdk/package/luci-app-flowlens
+          rsync -av --delete \
+            --exclude 'openwrt-sdk' \
+            --exclude '.git' \
+            --exclude 'bin' \
+            --exclude '.github/workflows' \
+            --exclude '*.tar.*' \
+            --exclude 'sdk-archive' \
+            luci-app-flowlens/ openwrt-sdk/package/luci-app-flowlens/
+
+      - name: Build package
+        working-directory: openwrt-sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+          make package/luci-app-flowlens/compile V=s || true
+
+      - name: Copy packages to staging
+        shell: bash
+        run: |
+          shopt -s globstar
+          mkdir -p packages-staging/${{ matrix.name }}
+          find openwrt-sdk/bin/packages -type f \( \
+              -name "luci-app-flowlens*.ipk" -o \
+              -name "luci-i18n-flowlens*.ipk" -o\
+              -name "luci-app-flowlens*.apk" -o \
+              -name "luci-i18n-flowlens*.apk" \
+            \) -exec cp -v {} packages-staging/${{ matrix.name }}/ \;
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-staging-${{ matrix.name }}
+          path: packages-staging/${{ matrix.name }}/
+          retention-days: 3
+          if-no-files-found: warn
+ # --------------------------------------------------------
+      # 🔥 新增：上传构建结果到 GitHub Release
+      # --------------------------------------------------------
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "luci-app-flowlens"
+          name: "luci-app-flowlens"
+          draft: false
+          prerelease: false
+          files: packages-staging/${{ matrix.name }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

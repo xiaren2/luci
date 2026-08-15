@@ -30,7 +30,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(CP) ./luasrc/controller/* $(1)/usr/lib/lua/luci/controller/
 
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n/zh_Hans
 	$(INSTALL_DATA) ./po/zh_Hans/*.po $(1)/usr/lib/lua/luci/i18n/zh_Hans/
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view
